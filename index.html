@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Deriv Live Signal Dashboard</title>
+<title>Deriv Live Signal Dashboard (Public API)</title>
 <style>
     * { box-sizing: border-box; }
     body {
@@ -59,7 +59,7 @@
         display: block;
         margin-bottom: 4px;
     }
-    select, input[type=number], input[type=text] {
+    select, input[type=number] {
         background-color: #232d3b;
         color: #fff;
         border: 1px solid #2a3444;
@@ -101,9 +101,6 @@
         font-weight: bold;
         color: #90caf9;
         list-style: none;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
     }
     details.settings summary::-webkit-details-marker { display: none; }
     .settings-body {
@@ -156,11 +153,7 @@
         background-color: #131722;
         position: relative;
     }
-    .chart-box canvas {
-        display: block;
-        width: 100%;
-        height: 100%;
-    }
+    .chart-box canvas { display: block; width: 100%; height: 100%; }
     .chart-range-label {
         position: absolute;
         right: 8px;
@@ -350,7 +343,7 @@
     <div class="price-card">
         <div class="detail-label" id="priceLabel">REAL-TIME TICK PRICE</div>
         <div id="livePrice" class="price-value">0.00</div>
-        <div id="lastUpdate" style="font-size: 0.8em; color: #78909c;">Connecting to Deriv WebSocket...</div>
+        <div id="lastUpdate" style="font-size: 0.8em; color: #78909c;">Connecting to Deriv Public API...</div>
     </div>
 
     <div id="signalContainer" class="signal-box signal-neutral">
@@ -387,14 +380,16 @@
     <div id="logConsole"></div>
 
     <div class="disclaimer">
-        Experimental tool for a synthetic volatility index. Both the SMA crossover and last-digit
-        distribution signals shown here are basic heuristics, not validated trading strategies — not financial advice.
+        Using Deriv Public WebSocket (no App ID required).<br>
+        Experimental tool — not financial advice.
     </div>
 </div>
 
 <script>
-    // Your App ID is already set below
-    const APP_ID = '33PxIMARIANLXOfM3qphg';
+    // ============================================================
+    //  PUBLIC API - No App ID needed
+    // ============================================================
+    const PUBLIC_WS = 'wss://api.derivws.com/trading/v1/options/ws/public';
 
     const SYMBOL_NAMES = {
         R_10: 'Volatility 10 Index', R_25: 'Volatility 25 Index', R_50: 'Volatility 50 Index',
@@ -404,8 +399,8 @@
         '1HZ100V': 'Volatility 100 (1s) Index'
     };
 
-    const STORAGE_KEY = 'derivDashboardSettings';
-    const HISTORY_KEY = 'derivDashboardHistory';
+    const STORAGE_KEY = 'derivPublicDashboardSettings';
+    const HISTORY_KEY = 'derivPublicDashboardHistory';
     const CHART_MAX_POINTS = 150;
     const PING_INTERVAL_MS = 25000;
 
@@ -512,7 +507,7 @@
         document.getElementById('chartMinLabel').innerText = min.toFixed(2);
     }
 
-    window.addEventListener('resize', function () {
+    window.addEventListener('resize', () => {
         if (chartPoints.length >= 2) drawChart();
     });
 
@@ -619,20 +614,22 @@
         resetSignalDisplay();
         resetChart();
 
-        const wsUrl = `wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`;
-        ws = new WebSocket(wsUrl);
+        // ========== PUBLIC API ==========
+        ws = new WebSocket(PUBLIC_WS);
 
         ws.onopen = function () {
-            document.getElementById('connectionStatus').innerText = 'Connected';
+            document.getElementById('connectionStatus').innerText = 'Connected (Public)';
             document.getElementById('connectionStatus').className = 'status-badge connected';
             logError('');
 
+            // Keep-alive
             pingTimer = setInterval(() => {
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({ ping: 1 }));
                 }
             }, PING_INTERVAL_MS);
 
+            // Request history + live stream (works on public gateway)
             ws.send(JSON.stringify({
                 ticks_history: settings.symbol,
                 adjust_start_time: 1,
@@ -649,8 +646,8 @@
 
             if (data.error) {
                 let msg = 'API Error: ' + (data.error.message || JSON.stringify(data.error));
-                if (msg.toLowerCase().includes('invalid') && msg.toLowerCase().includes('symbol')) {
-                    msg += '\n\nTry switching to a 1-second symbol (e.g. 1HZ75V) and click Apply.';
+                if ((msg.toLowerCase().includes('invalid') || msg.toLowerCase().includes('symbol'))) {
+                    msg += '\n\nTry switching to 1HZ75V or 1HZ100V and click Apply.';
                 }
                 logError(msg);
                 return;
@@ -658,6 +655,7 @@
 
             if (data.msg_type === 'ping') return;
 
+            // History batch
             if (data.msg_type === 'history' && data.history) {
                 const prices = data.history.prices || [];
                 const times  = data.history.times  || [];
@@ -688,15 +686,13 @@
                     document.getElementById('lastUpdate').innerText =
                         'Last tick: ' + new Date(lastTime).toLocaleTimeString();
 
-                    if (settings.strategy === 'sma') {
-                        evaluateSMASignal(lastPrice);
-                    } else {
-                        evaluateLastDigitSignal(String(prices[prices.length - 1]), lastPrice);
-                    }
+                    if (settings.strategy === 'sma') evaluateSMASignal(lastPrice);
+                    else evaluateLastDigitSignal(String(prices[prices.length - 1]), lastPrice);
                 }
                 return;
             }
 
+            // Live ticks
             if (data.msg_type === 'tick' && data.tick) {
                 const rawQuote = String(data.tick.quote);
                 const currentPrice = parseFloat(rawQuote);
@@ -730,7 +726,7 @@
         };
 
         ws.onerror = function () {
-            logError('WebSocket connection error. Check network.');
+            logError('WebSocket error. Check network.');
         };
     }
 
