@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Deriv Live Signal Dashboard (Public API)</title>
+<title>Deriv Sniper Signal Dashboard</title>
 <style>
     * { box-sizing: border-box; }
     body {
@@ -145,7 +145,7 @@
 
     .chart-box {
         width: 100%;
-        height: 220px;
+        height: 240px;
         border-radius: 8px;
         overflow: hidden;
         border: 1px solid #2a3444;
@@ -265,7 +265,7 @@
 
 <div class="container">
     <div class="header">
-        <h2 id="dashTitle">Live Signal Dashboard</h2>
+        <h2 id="dashTitle">Sniper Signal Dashboard</h2>
         <span id="connectionStatus" class="status-badge disconnected">Connecting...</span>
     </div>
 
@@ -288,7 +288,7 @@
         <div class="strategy-picker">
             <label for="strategySelect">Strategy</label>
             <select id="strategySelect">
-                <option value="sma">SMA Crossover</option>
+                <option value="sma">Sniper SMA</option>
                 <option value="lastdigit">Last Digit Distribution</option>
             </select>
         </div>
@@ -299,19 +299,19 @@
         <div class="settings-body">
             <div data-strategy-fields="sma" class="active">
                 <label for="fastPeriod">Fast SMA period</label>
-                <input type="number" id="fastPeriod" min="2" max="50" value="3">
+                <input type="number" id="fastPeriod" min="2" max="50" value="5">
             </div>
             <div data-strategy-fields="sma" class="active">
                 <label for="slowPeriod">Slow SMA period</label>
-                <input type="number" id="slowPeriod" min="3" max="100" value="8">
+                <input type="number" id="slowPeriod" min="3" max="100" value="14">
             </div>
             <div data-strategy-fields="sma" class="active">
                 <label for="tpOffset">Take profit offset (points)</label>
-                <input type="number" id="tpOffset" min="1" step="1" value="150">
+                <input type="number" id="tpOffset" min="1" step="1" value="180">
             </div>
             <div data-strategy-fields="sma" class="active">
                 <label for="neutralBand">Neutral band (%)</label>
-                <input type="number" id="neutralBand" min="0" step="0.001" value="0.01">
+                <input type="number" id="neutralBand" min="0" step="0.001" value="0.008">
             </div>
             <div data-strategy-fields="lastdigit">
                 <label for="windowSize">Rolling tick window</label>
@@ -323,7 +323,7 @@
             </div>
             <div class="full toggle-row">
                 <span>🔊 Sound alert on new signal</span>
-                <input type="checkbox" id="soundToggle">
+                <input type="checkbox" id="soundToggle" checked>
             </div>
             <div class="full toggle-row">
                 <span>🔔 Browser notification on new signal</span>
@@ -380,15 +380,12 @@
     <div id="logConsole"></div>
 
     <div class="disclaimer">
-        Using Deriv Public WebSocket (no App ID required).<br>
+        Using Deriv Public WebSocket • Sniper filters active<br>
         Experimental tool — not financial advice.
     </div>
 </div>
 
 <script>
-    // ============================================================
-    //  PUBLIC API - No App ID needed
-    // ============================================================
     const PUBLIC_WS = 'wss://api.derivws.com/trading/v1/options/ws/public';
 
     const SYMBOL_NAMES = {
@@ -399,21 +396,28 @@
         '1HZ100V': 'Volatility 100 (1s) Index'
     };
 
-    const STORAGE_KEY = 'derivPublicDashboardSettings';
-    const HISTORY_KEY = 'derivPublicDashboardHistory';
-    const CHART_MAX_POINTS = 150;
+    const STORAGE_KEY = 'derivSniperDashboardSettings_v2';
+    const HISTORY_KEY = 'derivSniperDashboardHistory_v2';
+    const CHART_MAX_POINTS = 180;
     const PING_INTERVAL_MS = 25000;
+    const MAX_MARKERS = 20;
 
     let settings = {
         symbol: 'R_75',
         strategy: 'sma',
-        fastPeriod: 3,
-        slowPeriod: 8,
-        tpOffset: 150,
-        neutralBand: 0.01,
+        fastPeriod: 5,
+        slowPeriod: 14,
+        trendPeriod: 40,
+        tpOffset: 180,
+        neutralBand: 0.008,
+        minSeparation: 0.015,
+        rsiPeriod: 14,
+        rsiOverbought: 72,
+        rsiOversold: 28,
+        confirmTicks: 2,
         windowSize: 100,
         digitThreshold: 10.0,
-        sound: false,
+        sound: true,
         notify: false
     };
 
@@ -424,6 +428,9 @@
     let tradeHistory = [];
     let audioCtx = null;
 
+    let pendingSignal = null;
+    let pendingCount = 0;
+
     let digitBuffer = [];
     let digitCounts = new Array(10).fill(0);
     let digitBufCount = 0;
@@ -431,9 +438,12 @@
     let lastFiredDigit = -1;
 
     let chartPoints = [];
+    let entryMarkers = [];   // { time, price, direction }
 
+    // ---------- Chart with markers ----------
     function resetChart() {
         chartPoints = [];
+        entryMarkers = [];
         const canvas = document.getElementById('priceChart');
         if (canvas) {
             const ctx = canvas.getContext('2d');
@@ -447,6 +457,18 @@
     function pushChartPoint(epochMs, price) {
         chartPoints.push({ time: epochMs, price });
         if (chartPoints.length > CHART_MAX_POINTS) chartPoints.shift();
+
+        // Keep only markers that are still inside the visible window
+        if (chartPoints.length > 0) {
+            const oldest = chartPoints[0].time;
+            entryMarkers = entryMarkers.filter(m => m.time >= oldest);
+        }
+        drawChart();
+    }
+
+    function addEntryMarker(epochMs, price, direction) {
+        entryMarkers.push({ time: epochMs, price, direction });
+        if (entryMarkers.length > MAX_MARKERS) entryMarkers.shift();
         drawChart();
     }
 
@@ -468,12 +490,13 @@
         let min = Math.min(...prices);
         let max = Math.max(...prices);
         if (min === max) { min -= 1; max += 1; }
-        const pad = (max - min) * 0.1;
+        const pad = (max - min) * 0.12;
         min -= pad; max += pad;
 
         const stepX = width / (chartPoints.length - 1);
         const scaleY = v => height - ((v - min) / (max - min)) * height;
 
+        // Gradient fill
         ctx.beginPath();
         ctx.moveTo(0, scaleY(prices[0]));
         prices.forEach((p, i) => ctx.lineTo(i * stepX, scaleY(p)));
@@ -481,27 +504,84 @@
         ctx.lineTo(0, height);
         ctx.closePath();
         const gradient = ctx.createLinearGradient(0, 0, 0, height);
-        gradient.addColorStop(0, 'rgba(0,188,212,0.25)');
+        gradient.addColorStop(0, 'rgba(0,188,212,0.22)');
         gradient.addColorStop(1, 'rgba(0,188,212,0)');
         ctx.fillStyle = gradient;
         ctx.fill();
 
+        // Price line
         ctx.beginPath();
         prices.forEach((p, i) => {
             const x = i * stepX, y = scaleY(p);
             if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
         });
         ctx.strokeStyle = '#00bcd4';
-        ctx.lineWidth = 1.6;
+        ctx.lineWidth = 1.7;
         ctx.lineJoin = 'round';
         ctx.stroke();
 
+        // Latest point
         const lastX = (prices.length - 1) * stepX;
         const lastY = scaleY(prices[prices.length - 1]);
         ctx.beginPath();
-        ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
+        ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2);
         ctx.fillStyle = '#00e5ff';
         ctx.fill();
+
+        // ===== ENTRY MARKERS =====
+        entryMarkers.forEach(marker => {
+            // Find closest chart point by time
+            let closestIdx = 0;
+            let minDiff = Infinity;
+            for (let i = 0; i < chartPoints.length; i++) {
+                const diff = Math.abs(chartPoints[i].time - marker.time);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    closestIdx = i;
+                }
+            }
+
+            const x = closestIdx * stepX;
+            const y = scaleY(marker.price);
+
+            if (marker.direction === 'buy') {
+                // Green upward triangle
+                ctx.beginPath();
+                ctx.moveTo(x, y - 12);
+                ctx.lineTo(x - 7, y + 2);
+                ctx.lineTo(x + 7, y + 2);
+                ctx.closePath();
+                ctx.fillStyle = '#4caf50';
+                ctx.fill();
+                ctx.strokeStyle = '#81c784';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                // Label
+                ctx.fillStyle = '#81c784';
+                ctx.font = 'bold 10px Segoe UI';
+                ctx.textAlign = 'center';
+                ctx.fillText('BUY', x, y - 16);
+            } else {
+                // Red downward triangle
+                ctx.beginPath();
+                ctx.moveTo(x, y + 12);
+                ctx.lineTo(x - 7, y - 2);
+                ctx.lineTo(x + 7, y - 2);
+                ctx.closePath();
+                ctx.fillStyle = '#f44336';
+                ctx.fill();
+                ctx.strokeStyle = '#ef9a9a';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                // Label
+                ctx.fillStyle = '#ef9a9a';
+                ctx.font = 'bold 10px Segoe UI';
+                ctx.textAlign = 'center';
+                ctx.fillText('SELL', x, y + 24);
+            }
+        });
 
         document.getElementById('chartMaxLabel').innerText = max.toFixed(2);
         document.getElementById('chartMinLabel').innerText = min.toFixed(2);
@@ -511,6 +591,7 @@
         if (chartPoints.length >= 2) drawChart();
     });
 
+    // ---------- Persistence ----------
     function loadSettings() {
         try {
             const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
@@ -541,7 +622,7 @@
         document.getElementById('digitThreshold').value = settings.digitThreshold;
         document.getElementById('soundToggle').checked = settings.sound;
         document.getElementById('notifyToggle').checked = settings.notify;
-        document.getElementById('dashTitle').innerText = (SYMBOL_NAMES[settings.symbol] || settings.symbol) + ' Live Signal';
+        document.getElementById('dashTitle').innerText = (SYMBOL_NAMES[settings.symbol] || settings.symbol) + ' Sniper';
         document.getElementById('priceLabel').innerText = 'REAL-TIME TICK PRICE (' + settings.symbol + ')';
         updateStrategyFieldVisibility();
     }
@@ -565,12 +646,10 @@
 
         if (strategy === 'sma') {
             if (!Number.isFinite(fast) || fast < 2) { logError('Fast period must be ≥ 2.'); return false; }
-            if (!Number.isFinite(slow) || slow <= fast) { logError('Slow period must be greater than fast period.'); return false; }
+            if (!Number.isFinite(slow) || slow <= fast) { logError('Slow period must be greater than fast.'); return false; }
             if (!Number.isFinite(tp) || tp <= 0) { logError('TP offset must be positive.'); return false; }
-            if (!Number.isFinite(band) || band < 0) { logError('Neutral band must be ≥ 0.'); return false; }
         } else {
-            if (!Number.isFinite(winSize) || winSize < 10) { logError('Rolling window must be ≥ 10.'); return false; }
-            if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) { logError('Threshold must be 0–100.'); return false; }
+            if (!Number.isFinite(winSize) || winSize < 10) { logError('Window must be ≥ 10.'); return false; }
         }
 
         settings.symbol = document.getElementById('symbolSelect').value;
@@ -598,6 +677,7 @@
         }
     }
 
+    // ---------- WebSocket ----------
     function initWebSocket() {
         if (ws) {
             try { ws.onclose = null; ws.close(); } catch (e) {}
@@ -606,6 +686,8 @@
 
         priceHistory = [];
         currentSignal = null;
+        pendingSignal = null;
+        pendingCount = 0;
         digitBuffer = new Array(settings.windowSize).fill(-1);
         digitCounts = new Array(10).fill(0);
         digitBufCount = 0;
@@ -614,7 +696,6 @@
         resetSignalDisplay();
         resetChart();
 
-        // ========== PUBLIC API ==========
         ws = new WebSocket(PUBLIC_WS);
 
         ws.onopen = function () {
@@ -622,14 +703,12 @@
             document.getElementById('connectionStatus').className = 'status-badge connected';
             logError('');
 
-            // Keep-alive
             pingTimer = setInterval(() => {
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({ ping: 1 }));
                 }
             }, PING_INTERVAL_MS);
 
-            // Request history + live stream (works on public gateway)
             ws.send(JSON.stringify({
                 ticks_history: settings.symbol,
                 adjust_start_time: 1,
@@ -645,17 +724,11 @@
             try { data = JSON.parse(event.data); } catch (e) { return; }
 
             if (data.error) {
-                let msg = 'API Error: ' + (data.error.message || JSON.stringify(data.error));
-                if ((msg.toLowerCase().includes('invalid') || msg.toLowerCase().includes('symbol'))) {
-                    msg += '\n\nTry switching to 1HZ75V or 1HZ100V and click Apply.';
-                }
-                logError(msg);
+                logError('API Error: ' + (data.error.message || JSON.stringify(data.error)));
                 return;
             }
-
             if (data.msg_type === 'ping') return;
 
-            // History batch
             if (data.msg_type === 'history' && data.history) {
                 const prices = data.history.prices || [];
                 const times  = data.history.times  || [];
@@ -663,54 +736,46 @@
                 for (let i = 0; i < prices.length; i++) {
                     const p = parseFloat(prices[i]);
                     if (!Number.isFinite(p)) continue;
-                    const t = Number(times[i]) * 1000;
-                    pushChartPoint(t, p);
+                    pushChartPoint(Number(times[i]) * 1000, p);
 
-                    if (settings.strategy === 'sma') {
-                        priceHistory.push(p);
-                    } else {
+                    if (settings.strategy === 'sma') priceHistory.push(p);
+                    else {
                         const d = getLastDigit(String(prices[i]));
                         if (Number.isFinite(d)) pushDigit(d);
                     }
                 }
 
-                const maxNeeded = Math.max(settings.slowPeriod, settings.fastPeriod) + 5;
-                if (priceHistory.length > maxNeeded) {
-                    priceHistory = priceHistory.slice(-maxNeeded);
-                }
+                const maxNeeded = Math.max(settings.slowPeriod, settings.fastPeriod, settings.trendPeriod, settings.rsiPeriod) + 15;
+                if (priceHistory.length > maxNeeded) priceHistory = priceHistory.slice(-maxNeeded);
 
                 if (prices.length > 0) {
                     const lastPrice = parseFloat(prices[prices.length - 1]);
                     const lastTime  = Number(times[times.length - 1]) * 1000;
                     document.getElementById('livePrice').innerText = lastPrice.toFixed(2);
-                    document.getElementById('lastUpdate').innerText =
-                        'Last tick: ' + new Date(lastTime).toLocaleTimeString();
+                    document.getElementById('lastUpdate').innerText = 'Last tick: ' + new Date(lastTime).toLocaleTimeString();
 
-                    if (settings.strategy === 'sma') evaluateSMASignal(lastPrice);
+                    if (settings.strategy === 'sma') evaluateSniperSMA(lastPrice, lastTime);
                     else evaluateLastDigitSignal(String(prices[prices.length - 1]), lastPrice);
                 }
                 return;
             }
 
-            // Live ticks
             if (data.msg_type === 'tick' && data.tick) {
                 const rawQuote = String(data.tick.quote);
                 const currentPrice = parseFloat(rawQuote);
                 if (!Number.isFinite(currentPrice)) return;
 
                 const epochMs = (data.tick.epoch || 0) * 1000;
-                const timestamp = new Date(epochMs).toLocaleTimeString();
-
                 document.getElementById('livePrice').innerText = currentPrice.toFixed(2);
-                document.getElementById('lastUpdate').innerText = 'Last tick: ' + timestamp;
+                document.getElementById('lastUpdate').innerText = 'Last tick: ' + new Date(epochMs).toLocaleTimeString();
 
                 pushChartPoint(epochMs, currentPrice);
 
                 if (settings.strategy === 'sma') {
                     priceHistory.push(currentPrice);
-                    const maxNeeded = Math.max(settings.slowPeriod, settings.fastPeriod) + 5;
+                    const maxNeeded = Math.max(settings.slowPeriod, settings.fastPeriod, settings.trendPeriod, settings.rsiPeriod) + 15;
                     if (priceHistory.length > maxNeeded) priceHistory.shift();
-                    evaluateSMASignal(currentPrice);
+                    evaluateSniperSMA(currentPrice, epochMs);
                 } else {
                     evaluateLastDigitSignal(rawQuote, currentPrice);
                 }
@@ -721,73 +786,127 @@
             clearPing();
             document.getElementById('connectionStatus').innerText = 'Disconnected';
             document.getElementById('connectionStatus').className = 'status-badge disconnected';
-            logError('Connection lost. Retrying in 3 seconds...');
+            logError('Connection lost. Retrying in 3s...');
             setTimeout(initWebSocket, 3000);
         };
 
         ws.onerror = function () {
-            logError('WebSocket error. Check network.');
+            logError('WebSocket error.');
         };
     }
 
     function resetSignalDisplay() {
-        const signalContainer = document.getElementById('signalContainer');
-        signalContainer.className = 'signal-box signal-neutral';
-        signalContainer.innerText = 'Collecting tick history...';
+        const el = document.getElementById('signalContainer');
+        el.className = 'signal-box signal-neutral';
+        el.innerText = 'Collecting tick history...';
         document.getElementById('entryPrice').innerText = '--';
         document.getElementById('takeProfitPrice').innerText = '--';
         renderDigitGrid(null);
     }
 
+    // ---------- Calculations ----------
     function calculateSMA(period) {
         if (priceHistory.length < period) return null;
         const slice = priceHistory.slice(-period);
-        const sum = slice.reduce((acc, val) => acc + val, 0);
-        return sum / period;
+        return slice.reduce((a, b) => a + b, 0) / period;
     }
 
-    function evaluateSMASignal(currentPrice) {
-        const fastSMA = calculateSMA(settings.fastPeriod);
-        const slowSMA = calculateSMA(settings.slowPeriod);
+    function calculateRSI(period) {
+        if (priceHistory.length < period + 1) return null;
+        let gains = 0, losses = 0;
+        for (let i = priceHistory.length - period; i < priceHistory.length; i++) {
+            const diff = priceHistory[i] - priceHistory[i - 1];
+            if (diff >= 0) gains += diff;
+            else losses -= diff;
+        }
+        if (losses === 0) return 100;
+        const rs = gains / losses;
+        return 100 - (100 / (1 + rs));
+    }
+
+    // ---------- Sniper SMA ----------
+    function evaluateSniperSMA(currentPrice, epochMs) {
+        const fast = calculateSMA(settings.fastPeriod);
+        const slow = calculateSMA(settings.slowPeriod);
+        const trend = calculateSMA(settings.trendPeriod);
+        const rsi = calculateRSI(settings.rsiPeriod);
 
         const signalContainer = document.getElementById('signalContainer');
         const entryPriceEl = document.getElementById('entryPrice');
         const tpPriceEl = document.getElementById('takeProfitPrice');
 
-        if (fastSMA === null || slowSMA === null) {
-            signalContainer.innerText = `Collecting tick history (${priceHistory.length}/${settings.slowPeriod})...`;
+        if (fast === null || slow === null || trend === null || rsi === null) {
+            signalContainer.innerText = `Collecting data (${priceHistory.length} ticks)...`;
             return;
         }
 
-        const pctDiff = ((fastSMA - slowSMA) / slowSMA) * 100;
-        let newSignal;
+        const pctDiff = ((fast - slow) / slow) * 100;
+        const separation = Math.abs(pctDiff);
 
+        const inUptrend   = currentPrice > trend;
+        const inDowntrend = currentPrice < trend;
+        const enoughSeparation = separation >= settings.minSeparation;
+        const rsiOkBuy  = rsi < settings.rsiOverbought;
+        const rsiOkSell = rsi > settings.rsiOversold;
+
+        let rawSignal = null;
         if (Math.abs(pctDiff) < settings.neutralBand) {
-            newSignal = 'neutral';
-            signalContainer.className = 'signal-box signal-neutral';
-            signalContainer.innerText = 'NEUTRAL / HOLD';
-            entryPriceEl.innerText = '--';
-            tpPriceEl.innerText = '--';
-        } else if (pctDiff > 0) {
-            newSignal = 'buy';
+            rawSignal = 'neutral';
+        } else if (pctDiff > 0 && inUptrend && enoughSeparation && rsiOkBuy) {
+            rawSignal = 'buy';
+        } else if (pctDiff < 0 && inDowntrend && enoughSeparation && rsiOkSell) {
+            rawSignal = 'sell';
+        } else {
+            rawSignal = 'neutral';
+        }
+
+        // Confirmation
+        if (rawSignal === 'buy' || rawSignal === 'sell') {
+            if (pendingSignal === rawSignal) pendingCount++;
+            else { pendingSignal = rawSignal; pendingCount = 1; }
+        } else {
+            pendingSignal = null;
+            pendingCount = 0;
+        }
+
+        let finalSignal = 'neutral';
+        if (pendingCount >= settings.confirmTicks) finalSignal = pendingSignal;
+
+        if (finalSignal === 'buy') {
             const tp = currentPrice + settings.tpOffset;
             signalContainer.className = 'signal-box signal-buy';
-            signalContainer.innerText = 'BUY SIGNAL ACTIVE';
+            signalContainer.innerText = 'SNIPER BUY  •  Confirmed';
             entryPriceEl.innerText = currentPrice.toFixed(2);
             tpPriceEl.innerText = tp.toFixed(2);
-            if (newSignal !== currentSignal) recordSignalChange('buy', currentPrice, tp);
-        } else {
-            newSignal = 'sell';
+
+            if (finalSignal !== currentSignal) {
+                recordSignalChange('buy', currentPrice, tp, epochMs);
+            }
+        } else if (finalSignal === 'sell') {
             const tp = currentPrice - settings.tpOffset;
             signalContainer.className = 'signal-box signal-sell';
-            signalContainer.innerText = 'SELL SIGNAL ACTIVE';
+            signalContainer.innerText = 'SNIPER SELL  •  Confirmed';
             entryPriceEl.innerText = currentPrice.toFixed(2);
             tpPriceEl.innerText = tp.toFixed(2);
-            if (newSignal !== currentSignal) recordSignalChange('sell', currentPrice, tp);
+
+            if (finalSignal !== currentSignal) {
+                recordSignalChange('sell', currentPrice, tp, epochMs);
+            }
+        } else {
+            signalContainer.className = 'signal-box signal-neutral';
+            if (pendingSignal) {
+                signalContainer.innerText = `Waiting confirmation (${pendingCount}/${settings.confirmTicks})...`;
+            } else {
+                signalContainer.innerText = 'NO SETUP  •  Waiting for sniper conditions';
+            }
+            entryPriceEl.innerText = '--';
+            tpPriceEl.innerText = '--';
         }
-        currentSignal = newSignal;
+
+        currentSignal = finalSignal;
     }
 
+    // ---------- Last Digit ----------
     function getLastDigit(rawQuote) {
         const cleaned = String(rawQuote).replace('.', '');
         const d = parseInt(cleaned.charAt(cleaned.length - 1), 10);
@@ -798,9 +917,7 @@
         if (digitBufCount === settings.windowSize) {
             const old = digitBuffer[digitBufHead];
             if (old >= 0) digitCounts[old]--;
-        } else {
-            digitBufCount++;
-        }
+        } else digitBufCount++;
         digitBuffer[digitBufHead] = d;
         digitCounts[d]++;
         digitBufHead = (digitBufHead + 1) % settings.windowSize;
@@ -820,29 +937,26 @@
         const pct = digitCounts.map(c => (c / digitBufCount) * 100);
         renderDigitGrid(pct);
 
-        const conditionMet = pct[0] < settings.digitThreshold &&
-                             pct[1] < settings.digitThreshold &&
-                             pct[2] < settings.digitThreshold &&
-                             pct[3] < settings.digitThreshold;
+        const conditionMet = pct[0] < settings.digitThreshold && pct[1] < settings.digitThreshold &&
+                             pct[2] < settings.digitThreshold && pct[3] < settings.digitThreshold;
 
         if (conditionMet && digitBufCount >= settings.windowSize) {
             let pickDigit = 0, pickPct = pct[0];
             for (let dd = 1; dd <= 3; dd++) {
                 if (pct[dd] < pickPct) { pickPct = pct[dd]; pickDigit = dd; }
             }
-
             signalContainer.className = 'signal-box signal-buy';
             signalContainer.innerText = `SIGNAL: BUY OVER ${pickDigit} (${pickPct.toFixed(1)}%)`;
 
             const newSignal = 'over-' + pickDigit;
             if (lastFiredDigit !== pickDigit) {
                 lastFiredDigit = pickDigit;
-                recordSignalChange('over', currentPrice, null, { digit: pickDigit, pct: pickPct });
+                recordSignalChange('over', currentPrice, null, null, { digit: pickDigit, pct: pickPct });
             }
             currentSignal = newSignal;
         } else {
             signalContainer.className = 'signal-box signal-neutral';
-            signalContainer.innerText = `SIGNAL: flat — waiting for digits 0-3 all under ${settings.digitThreshold.toFixed(1)}%`;
+            signalContainer.innerText = `SIGNAL: flat — waiting for digits 0-3 under ${settings.digitThreshold}%`;
             currentSignal = 'neutral';
             lastFiredDigit = -1;
         }
@@ -861,6 +975,7 @@
         }
     }
 
+    // ---------- Alerts & History ----------
     function playBeep(direction) {
         if (!settings.sound) return;
         try {
@@ -885,15 +1000,20 @@
         let title, body;
         if (direction === 'over') {
             title = `🟡 BUY OVER ${extra.digit} — ${settings.symbol}`;
-            body = `Price: ${price.toFixed(2)} | digit ${extra.digit}: ${extra.pct.toFixed(1)}%`;
+            body = `Price: ${price.toFixed(2)}`;
         } else {
-            title = (direction === 'buy' ? '🟢 BUY' : '🔴 SELL') + ' — ' + settings.symbol;
-            body = 'Price: ' + price.toFixed(2);
+            title = (direction === 'buy' ? '🟢 SNIPER BUY' : '🔴 SNIPER SELL') + ' — ' + settings.symbol;
+            body = 'Entry: ' + price.toFixed(2);
         }
         new Notification(title, { body });
     }
 
-    function recordSignalChange(direction, price, tp, extra) {
+    function recordSignalChange(direction, price, tp, epochMs, extra) {
+        // Add visual marker on chart
+        if ((direction === 'buy' || direction === 'sell') && epochMs) {
+            addEntryMarker(epochMs, price, direction);
+        }
+
         let entry;
         if (direction === 'over') {
             entry = {
@@ -944,6 +1064,7 @@
         });
     }
 
+    // ---------- UI ----------
     document.getElementById('applyBtn').addEventListener('click', function () {
         if (!readSettingsFromForm()) return;
         saveSettings();
