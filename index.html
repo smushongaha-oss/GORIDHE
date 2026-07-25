@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Deriv Live Signal Dashboard</title>
 <style>
+    /* ... (same CSS as before – keep your existing styles) ... */
     * { box-sizing: border-box; }
     body {
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -59,7 +60,7 @@
         display: block;
         margin-bottom: 4px;
     }
-    select, input[type=number] {
+    select, input[type=number], input[type=text] {
         background-color: #232d3b;
         color: #fff;
         border: 1px solid #2a3444;
@@ -257,6 +258,7 @@
         color: #ff8a80;
         text-align: center;
         min-height: 1em;
+        white-space: pre-wrap;
     }
     .disclaimer {
         margin-top: 18px;
@@ -300,9 +302,13 @@
         </div>
     </div>
 
-    <details class="settings" id="settingsPanel">
+    <details class="settings" id="settingsPanel" open>
         <summary>Signal settings &amp; alerts</summary>
         <div class="settings-body">
+            <div class="full">
+                <label for="appIdInput">Your Deriv App ID (required)</label>
+                <input type="text" id="appIdInput" placeholder="Get it at api.deriv.com" value="">
+            </div>
             <div data-strategy-fields="sma" class="active">
                 <label for="fastPeriod">Fast SMA period</label>
                 <input type="number" id="fastPeriod" min="2" max="50" value="3">
@@ -392,6 +398,11 @@
 </div>
 
 <script>
+    // ============================================================
+    //  IMPORTANT: Put your own App ID here (get it at api.deriv.com)
+    // ============================================================
+    const DEFAULT_APP_ID = '';   // ← leave empty so the input is required
+
     const SYMBOL_NAMES = {
         R_10: 'Volatility 10 Index', R_25: 'Volatility 25 Index', R_50: 'Volatility 50 Index',
         R_75: 'Volatility 75 Index', R_100: 'Volatility 100 Index',
@@ -415,7 +426,8 @@
         windowSize: 100,
         digitThreshold: 10.0,
         sound: false,
-        notify: false
+        notify: false,
+        appId: DEFAULT_APP_ID
     };
 
     let priceHistory = [];
@@ -544,7 +556,8 @@
         document.getElementById('digitThreshold').value = settings.digitThreshold;
         document.getElementById('soundToggle').checked = settings.sound;
         document.getElementById('notifyToggle').checked = settings.notify;
-        document.getElementById('dashTitle').innerText = SYMBOL_NAMES[settings.symbol] + ' Live Signal';
+        document.getElementById('appIdInput').value = settings.appId || '';
+        document.getElementById('dashTitle').innerText = (SYMBOL_NAMES[settings.symbol] || settings.symbol) + ' Live Signal';
         document.getElementById('priceLabel').innerText = 'REAL-TIME TICK PRICE (' + settings.symbol + ')';
         updateStrategyFieldVisibility();
     }
@@ -558,6 +571,12 @@
     }
 
     function readSettingsFromForm() {
+        const appId = document.getElementById('appIdInput').value.trim();
+        if (!appId) {
+            logError('Please enter your Deriv App ID.\nGet one free at https://api.deriv.com');
+            return false;
+        }
+
         const strategy = document.getElementById('strategySelect').value;
         const fast = parseInt(document.getElementById('fastPeriod').value, 10);
         const slow = parseInt(document.getElementById('slowPeriod').value, 10);
@@ -567,15 +586,16 @@
         const threshold = parseFloat(document.getElementById('digitThreshold').value);
 
         if (strategy === 'sma') {
-            if (!Number.isFinite(fast) || fast < 2) { logError('Fast period must be a number ≥ 2.'); return false; }
+            if (!Number.isFinite(fast) || fast < 2) { logError('Fast period must be ≥ 2.'); return false; }
             if (!Number.isFinite(slow) || slow <= fast) { logError('Slow period must be greater than fast period.'); return false; }
-            if (!Number.isFinite(tp) || tp <= 0) { logError('TP offset must be a positive number.'); return false; }
-            if (!Number.isFinite(band) || band < 0) { logError('Neutral band must be zero or a positive number.'); return false; }
+            if (!Number.isFinite(tp) || tp <= 0) { logError('TP offset must be positive.'); return false; }
+            if (!Number.isFinite(band) || band < 0) { logError('Neutral band must be ≥ 0.'); return false; }
         } else {
-            if (!Number.isFinite(winSize) || winSize < 10) { logError('Rolling window must be a number ≥ 10.'); return false; }
-            if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) { logError('Threshold must be between 0 and 100.'); return false; }
+            if (!Number.isFinite(winSize) || winSize < 10) { logError('Rolling window must be ≥ 10.'); return false; }
+            if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) { logError('Threshold must be 0–100.'); return false; }
         }
 
+        settings.appId = appId;
         settings.symbol = document.getElementById('symbolSelect').value;
         settings.strategy = strategy;
         settings.fastPeriod = fast;
@@ -603,6 +623,13 @@
     }
 
     function initWebSocket() {
+        if (!settings.appId) {
+            logError('Please enter your Deriv App ID and click Apply.\nGet one free at https://api.deriv.com');
+            document.getElementById('connectionStatus').innerText = 'No App ID';
+            document.getElementById('connectionStatus').className = 'status-badge disconnected';
+            return;
+        }
+
         if (ws) {
             try { ws.onclose = null; ws.close(); } catch (e) {}
         }
@@ -618,8 +645,7 @@
         resetSignalDisplay();
         resetChart();
 
-        // Official public test app_id + legacy v3 endpoint (still fully supported for market data)
-        const wsUrl = 'wss://ws.derivws.com/websockets/v3?app_id=1089';
+        const wsUrl = `wss://ws.derivws.com/websockets/v3?app_id=${settings.appId}`;
         ws = new WebSocket(wsUrl);
 
         ws.onopen = function () {
@@ -627,14 +653,13 @@
             document.getElementById('connectionStatus').className = 'status-badge connected';
             logError('');
 
-            // Keep-alive ping (Deriv recommends this)
             pingTimer = setInterval(() => {
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({ ping: 1 }));
                 }
             }, PING_INTERVAL_MS);
 
-            // Request history + live subscription in one call
+            // Request history + live stream
             ws.send(JSON.stringify({
                 ticks_history: settings.symbol,
                 adjust_start_time: 1,
@@ -647,21 +672,22 @@
 
         ws.onmessage = function (event) {
             let data;
-            try {
-                data = JSON.parse(event.data);
-            } catch (e) {
-                return;
-            }
+            try { data = JSON.parse(event.data); } catch (e) { return; }
 
             if (data.error) {
-                logError('API Error: ' + (data.error.message || JSON.stringify(data.error)));
+                let msg = 'API Error: ' + (data.error.message || JSON.stringify(data.error));
+                if (msg.toLowerCase().includes('invalid') && msg.toLowerCase().includes('symbol')) {
+                    msg += '\n\nTip: The shared test App ID often blocks R_xx symbols.\n' +
+                          '1. Register your own App ID at https://api.deriv.com\n' +
+                          '2. Paste it in the settings above and click Apply.\n' +
+                          '3. Or try a 1-second symbol (e.g. 1HZ75V).';
+                }
+                logError(msg);
                 return;
             }
 
-            // Ignore pure ping responses
             if (data.msg_type === 'ping') return;
 
-            // Initial history batch
             if (data.msg_type === 'history' && data.history) {
                 const prices = data.history.prices || [];
                 const times  = data.history.times  || [];
@@ -675,14 +701,11 @@
                     if (settings.strategy === 'sma') {
                         priceHistory.push(p);
                     } else {
-                        // Seed last-digit buffer from history
-                        const raw = String(prices[i]);
-                        const d = getLastDigit(raw);
+                        const d = getLastDigit(String(prices[i]));
                         if (Number.isFinite(d)) pushDigit(d);
                     }
                 }
 
-                // Trim SMA buffer
                 const maxNeeded = Math.max(settings.slowPeriod, settings.fastPeriod) + 5;
                 if (priceHistory.length > maxNeeded) {
                     priceHistory = priceHistory.slice(-maxNeeded);
@@ -704,7 +727,6 @@
                 return;
             }
 
-            // Live ticks
             if (data.msg_type === 'tick' && data.tick) {
                 const rawQuote = String(data.tick.quote);
                 const currentPrice = parseFloat(rawQuote);
@@ -738,7 +760,7 @@
         };
 
         ws.onerror = function () {
-            logError('WebSocket connection error. Check network / try again.');
+            logError('WebSocket connection error. Check network or App ID.');
         };
     }
 
@@ -788,7 +810,6 @@
             signalContainer.innerText = 'BUY SIGNAL ACTIVE';
             entryPriceEl.innerText = currentPrice.toFixed(2);
             tpPriceEl.innerText = tp.toFixed(2);
-
             if (newSignal !== currentSignal) recordSignalChange('buy', currentPrice, tp);
         } else {
             newSignal = 'sell';
@@ -797,10 +818,8 @@
             signalContainer.innerText = 'SELL SIGNAL ACTIVE';
             entryPriceEl.innerText = currentPrice.toFixed(2);
             tpPriceEl.innerText = tp.toFixed(2);
-
             if (newSignal !== currentSignal) recordSignalChange('sell', currentPrice, tp);
         }
-
         currentSignal = newSignal;
     }
 
@@ -829,7 +848,6 @@
         pushDigit(d);
 
         const signalContainer = document.getElementById('signalContainer');
-
         if (digitBufCount === 0) {
             signalContainer.innerText = 'Waiting for ticks...';
             return;
@@ -899,15 +917,14 @@
 
     function sendNotification(direction, price, extra) {
         if (!settings.notify) return;
-        if (!('Notification' in window)) return;
-        if (Notification.permission !== 'granted') return;
+        if (!('Notification' in window) || Notification.permission !== 'granted') return;
 
         let title, body;
         if (direction === 'over') {
-            title = `🟡 BUY OVER ${extra.digit} signal — ` + settings.symbol;
+            title = `🟡 BUY OVER ${extra.digit} — ${settings.symbol}`;
             body = `Price: ${price.toFixed(2)} | digit ${extra.digit}: ${extra.pct.toFixed(1)}%`;
         } else {
-            title = (direction === 'buy' ? '🟢 BUY' : '🔴 SELL') + ' signal — ' + settings.symbol;
+            title = (direction === 'buy' ? '🟢 BUY' : '🔴 SELL') + ' — ' + settings.symbol;
             body = 'Price: ' + price.toFixed(2);
         }
         new Notification(title, { body });
@@ -997,7 +1014,14 @@
         loadSettings();
         applySettingsToForm();
         renderHistory();
-        initWebSocket();
+        // Do not auto-connect until user provides App ID
+        if (settings.appId) {
+            initWebSocket();
+        } else {
+            logError('Enter your Deriv App ID above and click Apply.\nGet one free at https://api.deriv.com');
+            document.getElementById('connectionStatus').innerText = 'No App ID';
+            document.getElementById('connectionStatus').className = 'status-badge disconnected';
+        }
     };
 </script>
 
