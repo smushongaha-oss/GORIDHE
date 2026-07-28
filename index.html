@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Deriv Solid Trend Sniper (Long Trends)</title>
+<title>Deriv Solid Trend Sniper (Long Trends + AI)</title>
 <style>
     * { box-sizing: border-box; }
     body {
@@ -227,6 +227,37 @@
         margin-top: 8px;
     }
 
+    .ai-box {
+        background: linear-gradient(135deg, #1a237e, #0d47a1);
+        border: 1px solid #3949ab;
+        border-radius: 10px;
+        padding: 14px;
+        margin: 14px 0;
+        font-size: 0.9em;
+        line-height: 1.45;
+    }
+    .ai-box .ai-title {
+        font-weight: bold;
+        color: #90caf9;
+        margin-bottom: 6px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .ai-box #aiText { color: #e3f2fd; }
+
+    .tf-box {
+        background: #202836;
+        border: 1px solid #2a3444;
+        border-radius: 8px;
+        padding: 12px 14px;
+        margin-bottom: 14px;
+        font-size: 0.82em;
+        color: #b0bec5;
+        line-height: 1.5;
+    }
+    .tf-box strong { color: #80cbc4; }
+
     .history-section { margin-top: 20px; }
     .history-header {
         display: flex;
@@ -314,20 +345,29 @@
         </div>
     </div>
 
+    <!-- BEST TIMEFRAMES -->
+    <div class="tf-box" id="tfBox">
+        <strong>Best Timeframes for this strategy</strong><br>
+        • Primary: <strong>M5</strong> and <strong>M15</strong> (cleanest long trends)<br>
+        • Secondary: <strong>M30</strong> (very selective)<br>
+        • Avoid: M1 and tick charts for entries — too much noise<br>
+        Use the same EMA periods (14 / 30 / 80) on MT5 for matching signals.
+    </div>
+
     <details class="settings" id="settingsPanel">
         <summary>Settings &amp; Alerts</summary>
         <div class="settings-body">
             <div data-strategy-fields="sma" class="active">
                 <label for="fastPeriod">Fast EMA</label>
-                <input type="number" id="fastPeriod" min="5" max="40" value="12">
+                <input type="number" id="fastPeriod" min="5" max="40" value="14">
             </div>
             <div data-strategy-fields="sma" class="active">
                 <label for="slowPeriod">Mid EMA</label>
-                <input type="number" id="slowPeriod" min="15" max="80" value="26">
+                <input type="number" id="slowPeriod" min="15" max="80" value="30">
             </div>
             <div data-strategy-fields="sma" class="active">
                 <label for="trendPeriod">Slow EMA (long trend)</label>
-                <input type="number" id="trendPeriod" min="40" max="200" value="100">
+                <input type="number" id="trendPeriod" min="40" max="200" value="80">
             </div>
             <div data-strategy-fields="sma" class="active">
                 <label for="tpOffset">TP offset (points)</label>
@@ -335,11 +375,11 @@
             </div>
             <div data-strategy-fields="sma" class="active">
                 <label for="confirmTicks">Confirm ticks</label>
-                <input type="number" id="confirmTicks" min="2" max="12" value="4">
+                <input type="number" id="confirmTicks" min="2" max="12" value="5">
             </div>
             <div data-strategy-fields="sma" class="active">
                 <label for="minSeparation">Min EMA gap %</label>
-                <input type="number" id="minSeparation" min="0" step="0.005" value="0.03">
+                <input type="number" id="minSeparation" min="0" step="0.005" value="0.04">
             </div>
 
             <div data-strategy-fields="lastdigit">
@@ -383,6 +423,12 @@
         <div class="trend-info" id="trendInfo">Trend: —</div>
     </div>
 
+    <!-- AI INSIGHT -->
+    <div class="ai-box">
+        <div class="ai-title">🤖 AI Insight</div>
+        <div id="aiText">Waiting for market data...</div>
+    </div>
+
     <div id="signalContainer" class="signal-box signal-neutral">
         Connecting to feed...
     </div>
@@ -416,7 +462,7 @@
 
     <div id="logConsole"></div>
     <div class="disclaimer">
-        Public Deriv API • Multi-EMA long-trend filter with arrows<br>
+        Public Deriv API • Multi-EMA long-trend filter + AI insight<br>
         Experimental — not financial advice.
     </div>
 </div>
@@ -431,8 +477,8 @@
         '1HZ50V': 'Vol 50 (1s)', '1HZ75V': 'Vol 75 (1s)', '1HZ100V': 'Vol 100 (1s)'
     };
 
-    const STORAGE_KEY = 'derivSolidTrend_v4_long';
-    const HISTORY_KEY = 'derivSolidTrendHistory_v4';
+    const STORAGE_KEY = 'derivSolidTrend_v5_ai';
+    const HISTORY_KEY = 'derivSolidTrendHistory_v5';
     const CHART_MAX_POINTS = 280;
     const PING_MS = 25000;
     const MAX_MARKERS = 24;
@@ -440,12 +486,12 @@
     let settings = {
         symbol: 'R_75',
         strategy: 'sma',
-        fastPeriod: 12,
-        slowPeriod: 26,
-        trendPeriod: 100,
+        fastPeriod: 14,
+        slowPeriod: 30,
+        trendPeriod: 80,
         tpOffset: 300,
-        confirmTicks: 4,
-        minSeparation: 0.03,
+        confirmTicks: 5,
+        minSeparation: 0.04,
         rsiPeriod: 14,
         rsiBuyMax: 72,
         rsiSellMin: 28,
@@ -487,11 +533,36 @@
         return 100 - (100 / (1 + gains / losses));
     }
 
-    function recentMomentum(lookback = 8) {
+    function recentMomentum(lookback = 10) {
         if (priceHistory.length < lookback + 1) return 0;
         const now = priceHistory[priceHistory.length - 1];
         const past = priceHistory[priceHistory.length - 1 - lookback];
         return ((now - past) / past) * 100;
+    }
+
+    // ---------- AI Insight ----------
+    function updateAI(solidBull, solidBear, rsi, mom, gapFastMid, gapMidSlow) {
+        const el = document.getElementById('aiText');
+        let text = '';
+
+        if (solidBull) {
+            text = `Strong bullish stack detected. EMAs are cleanly aligned upward with good separation. Momentum is positive. High-probability long setup — consider BUY if confirmation completes.`;
+        } else if (solidBear) {
+            text = `Strong bearish stack detected. EMAs are cleanly aligned downward. Momentum is negative. High-probability short setup — consider SELL if confirmation completes.`;
+        } else if (emaFastState > emaMidState && emaMidState > emaSlowState) {
+            text = `Weak upward structure forming but gaps are still small or momentum is soft. Wait for clearer separation and stronger momentum before entering.`;
+        } else if (emaFastState < emaMidState && emaMidState < emaSlowState) {
+            text = `Weak downward structure forming. Not yet solid enough. Patience — wait for the slow EMA to confirm and gaps to widen.`;
+        } else {
+            text = `Market is ranging / mixed. No clear directional bias. Best action: stay flat and wait for a clean EMA stack on M5 or M15.`;
+        }
+
+        if (rsi !== null) {
+            if (rsi > 70) text += ` RSI is elevated (${rsi.toFixed(0)}) — caution on new longs.`;
+            else if (rsi < 30) text += ` RSI is low (${rsi.toFixed(0)}) — caution on new shorts.`;
+        }
+
+        el.innerText = text;
     }
 
     // ---------- Chart + markers + EMA lines ----------
@@ -594,9 +665,9 @@
             ctx.lineWidth = width;
             ctx.stroke();
         }
-        drawEma(emaSlowSeries, '#ce93d8', 1.6);   // slow purple
-        drawEma(emaMidSeries,  '#ff9800', 1.5);   // mid orange
-        drawEma(emaFastSeries, '#00e5ff', 1.4);   // fast cyan
+        drawEma(emaSlowSeries, '#ce93d8', 1.6);
+        drawEma(emaMidSeries,  '#ff9800', 1.5);
+        drawEma(emaFastSeries, '#00e5ff', 1.4);
 
         // last price dot
         ctx.beginPath();
@@ -604,7 +675,7 @@
         ctx.fillStyle = '#00e5ff';
         ctx.fill();
 
-        // BUY / SELL arrows (larger & clearer)
+        // BUY / SELL arrows
         entryMarkers.forEach(m => {
             let idx = 0, best = Infinity;
             for (let i = 0; i < chartPoints.length; i++) {
@@ -614,7 +685,6 @@
             const x = idx * stepX, y = sy(m.price);
 
             if (m.direction === 'buy') {
-                // upward triangle
                 ctx.beginPath();
                 ctx.moveTo(x, y - 14);
                 ctx.lineTo(x - 9, y + 4);
@@ -630,7 +700,6 @@
                 ctx.textAlign = 'center';
                 ctx.fillText('BUY', x, y - 18);
             } else {
-                // downward triangle
                 ctx.beginPath();
                 ctx.moveTo(x, y + 14);
                 ctx.lineTo(x - 9, y - 4);
@@ -693,6 +762,7 @@
         document.getElementById('smaDetailsGrid').style.display = settings.strategy === 'sma' ? 'grid' : 'none';
         document.getElementById('digitGrid').style.display = settings.strategy === 'lastdigit' ? 'grid' : 'none';
         document.getElementById('emaLegend').style.display = settings.strategy === 'sma' ? 'flex' : 'none';
+        document.getElementById('tfBox').style.display = settings.strategy === 'sma' ? 'block' : 'none';
     }
 
     function readSettingsFromForm() {
@@ -796,6 +866,7 @@
         digitBufCount = 0; digitBufHead = 0; lastFiredDigit = -1;
         resetSignalDisplay();
         resetChart();
+        document.getElementById('aiText').innerText = 'Waiting for market data...';
 
         ws = new WebSocket(PUBLIC_WS);
 
@@ -916,12 +987,11 @@
         }
 
         const rsi = calculateRSI(settings.rsiPeriod);
-        const mom = recentMomentum(10);   // longer lookback for long trends
+        const mom = recentMomentum(10);
 
         const gapFastMid = Math.abs((emaFastState - emaMidState) / emaMidState) * 100;
         const gapMidSlow = Math.abs((emaMidState - emaSlowState) / emaSlowState) * 100;
 
-        // Stronger stacked conditions for longer trends
         const solidBull =
             emaFastState > emaMidState &&
             emaMidState > emaSlowState &&
@@ -939,6 +1009,9 @@
             gapMidSlow >= settings.minSeparation * 0.5 &&
             (rsi === null || rsi > settings.rsiSellMin) &&
             mom < -0.015;
+
+        // Update AI
+        updateAI(solidBull, solidBear, rsi, mom, gapFastMid, gapMidSlow);
 
         if (solidBull) trendEl.innerText = 'Trend: 🟢 SOLID LONG UP  |  RSI ' + (rsi ? rsi.toFixed(0) : '—');
         else if (solidBear) trendEl.innerText = 'Trend: 🔴 SOLID LONG DOWN  |  RSI ' + (rsi ? rsi.toFixed(0) : '—');
@@ -991,7 +1064,7 @@
         currentSignal = final;
     }
 
-    // ---------- Last digit (kept) ----------
+    // ---------- Last digit ----------
     function getLastDigit(q) {
         const c = String(q).replace('.', '');
         const d = parseInt(c.charAt(c.length - 1), 10);
