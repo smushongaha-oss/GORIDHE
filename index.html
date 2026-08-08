@@ -26,6 +26,7 @@
   select, input[type=number]{
     background:var(--panel2); color:var(--white); border:1px solid var(--border); border-radius:6px; padding:4px 8px; font-size:12px; font-family:var(--mono);
   }
+  button.refresh{background:var(--panel2); color:var(--cyan); border:1px solid var(--border); border-radius:6px; padding:4px 10px; font-size:12px; cursor:pointer;}
   .grid{
     display:grid; grid-template-columns:repeat(auto-fill, minmax(320px,1fr)); gap:12px; padding:16px 18px;
   }
@@ -41,6 +42,8 @@
   .badge.sell{background:rgba(239,68,68,.15); color:var(--red);}
   .badge.buy{background:rgba(34,197,94,.15); color:var(--green);}
   .badge.wait{background:rgba(138,141,163,.12); color:var(--dim);}
+  .badge.loading{background:rgba(59,130,246,.15); color:var(--blue);}
+  .badge.error{background:rgba(239,68,68,.2); color:var(--red);}
   canvas{width:100%; height:160px; display:block; border-radius:6px; background:#000;}
   .rows{display:grid; grid-template-columns:1fr 1fr; gap:4px 10px; margin-top:8px; font-family:var(--mono); font-size:11px;}
   .rows .k{color:var(--dim);}
@@ -50,6 +53,7 @@
   .v.tp{color:var(--cyan);}
   .cci{font-size:10px; color:var(--dim); margin-top:6px; font-family:var(--mono);}
   .cci b{color:var(--orange);}
+  .card-status{font-size:10px; color:var(--dim); margin-top:4px; font-family:var(--mono);}
   footer{padding:16px 18px; color:var(--dim); font-size:11px; line-height:1.6;}
   footer code{color:var(--cyan);}
 </style>
@@ -75,32 +79,27 @@
   <label>CCI threshold<input id="cciThresh" type="number" value="50" step="5" min="0" max="150" style="width:56px"></label>
   <label>SL buffer (×ATR)<input id="slBuf" type="number" value="0.5" step="0.1" min="0.1" max="3" style="width:56px"></label>
   <label><input type="checkbox" id="signalsOnly"> Signals only</label>
+  <button class="refresh" id="btnRefresh">Force Refresh</button>
 </div>
 
 <div class="grid" id="grid"></div>
 
 <footer>
-  Logic (matches the chart you supplied): detects two consecutive swing pivots on the EMA(9) trend line 
-  (a peak then a lower peak → SELL / a trough then a higher trough → BUY).  
-  When price has broken beyond the second pivot <b>and</b> CCI(14) confirms momentum, an entry is fired.  
-  <b>TP</b> = the price where the line through the two pivots lands after projecting forward <code>Projection ×</code> the pivot-to-pivot distance 
-  (the same trend-fan convergence you drew).  
-  <b>SL</b> sits just beyond the second pivot, offset by <code>SL buffer × ATR(14)</code>.  
-  Educational tool only — not financial advice. Always verify on your platform.
+  Logic: two consecutive EMA(9) swing pivots → price breaks the second pivot + CCI confirms → Entry / SL (ATR buffer) / TP (projected fan).  
+  Educational only — not financial advice.
 </footer>
 
 <script>
-// ---------- global error surfacing ----------
 const errLogEl = () => document.getElementById('errorLog');
 function logError(prefix, err){
   const box = errLogEl();
   const msg = (err && (err.message || err.toString())) || String(err);
   box.style.display = 'block';
-  box.textContent = '[' + new Date().toLocaleTimeString() + '] ' + prefix + ': ' + msg;
+  box.textContent = '[' + new Date().toLocaleTimeString() + '] ' + prefix + ': ' + msg + '\n' + (box.textContent || '');
   console.error(prefix, err);
 }
-window.addEventListener('error', (e) => logError('Runtime error', e.error || e.message));
-window.addEventListener('unhandledrejection', (e) => logError('Unhandled promise rejection', e.reason));
+window.addEventListener('error', e => logError('Runtime', e.error || e.message));
+window.addEventListener('unhandledrejection', e => logError('Promise', e.reason));
 
 const SYMBOLS = [
   {code:'R_10', name:'Volatility 10 Index'},
@@ -120,11 +119,14 @@ const SYMBOLS = [
 ];
 
 const state = {};
-SYMBOLS.forEach(s => state[s.code] = {candles:[], ema:[], cci:[], atr:[], pivotsHigh:[], pivotsLow:[], signal:null});
+SYMBOLS.forEach(s => state[s.code] = {
+  candles:[], ema:[], cci:[], atr:[], pivotsHigh:[], pivotsLow:[], signal:null, status:'idle', error:null
+});
 
 let ws = null;
 let reqId = 1;
 const pending = {};
+let pingTimer = null;
 
 const grid = document.getElementById('grid');
 const dot = document.getElementById('dot');
@@ -135,7 +137,7 @@ const cciThreshEl = document.getElementById('cciThresh');
 const slBufEl = document.getElementById('slBuf');
 const signalsOnlyEl = document.getElementById('signalsOnly');
 
-// ---------- build cards ----------
+// build cards
 SYMBOLS.forEach(s => {
   const card = document.createElement('div');
   card.className = 'card';
@@ -153,32 +155,67 @@ SYMBOLS.forEach(s => {
       <div class="k">TP</div><div class="v tp" id="tp-${s.code}">—</div>
     </div>
     <div class="cci">CCI(14) <b id="cci-${s.code}">—</b></div>
+    <div class="card-status" id="status-${s.code}">idle</div>
   `;
   grid.appendChild(card);
 });
 
-// ---------- connection ----------
+function setCardStatus(sym, txt, isError=false){
+  const el = document.getElementById('status-'+sym);
+  if (el) el.textContent = txt;
+  state[sym].status = txt;
+  state[sym].error = isError ? txt : null;
+}
+
 function connect(){
+  if (ws) try { ws.close(); } catch(e){}
   ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
   ws.onopen = () => {
-    dot.classList.add('on'); statusText.textContent = 'connected';
-    SYMBOLS.forEach(s => requestCandles(s.code));
+    dot.classList.add('on');
+    statusText.textContent = 'connected';
+    // sequential requests to avoid rate-limit
+    let i = 0;
+    function next(){
+      if (i >= SYMBOLS.length) return;
+      const sym = SYMBOLS[i++].code;
+      setCardStatus(sym, 'loading…');
+      requestCandles(sym);
+      setTimeout(next, 350);
+    }
+    next();
+    // keepalive
+    clearInterval(pingTimer);
+    pingTimer = setInterval(() => {
+      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ping:1}));
+    }, 25000);
   };
   ws.onclose = () => {
-    dot.classList.remove('on'); statusText.textContent = 'disconnected — retrying…';
-    setTimeout(connect, 3000);
+    dot.classList.remove('on');
+    statusText.textContent = 'disconnected — retrying…';
+    clearInterval(pingTimer);
+    setTimeout(connect, 4000);
   };
   ws.onerror = () => { statusText.textContent = 'connection error'; };
   ws.onmessage = (msg) => {
     try {
       const data = JSON.parse(msg.data);
-      if (data.error) { console.warn(data.error.message); return; }
+      if (data.error) {
+        const sym = pending[data.req_id] || (data.echo_req && data.echo_req.ticks_history);
+        if (sym) {
+          setCardStatus(sym, 'ERR: ' + (data.error.message || data.error.code), true);
+          const badge = document.getElementById('badge-'+sym);
+          if (badge) { badge.textContent = 'ERR'; badge.className = 'badge error'; }
+        }
+        console.warn('API error', data.error);
+        return;
+      }
       if (data.msg_type === 'candles') {
         const sym = pending[data.req_id];
         if (!sym || !Array.isArray(data.candles)) return;
         state[sym].candles = data.candles.map(c => ({
           epoch:c.epoch, open:+c.open, high:+c.high, low:+c.low, close:+c.close
         }));
+        setCardStatus(sym, 'live (' + state[sym].candles.length + ')');
         recompute(sym);
       } else if (data.msg_type === 'ohlc' && data.ohlc) {
         const sym = data.ohlc.symbol;
@@ -188,36 +225,51 @@ function connect(){
         const last = arr[arr.length-1];
         if (last && last.epoch === c.epoch) arr[arr.length-1] = c;
         else { arr.push(c); if (arr.length > 300) arr.shift(); }
+        setCardStatus(sym, 'live (' + arr.length + ')');
         recompute(sym);
       }
     } catch (err) {
-      logError('WS message handling', err);
+      logError('WS message', err);
     }
   };
 }
 
 function requestCandles(sym){
+  if (!ws || ws.readyState !== 1) return;
   const id = reqId++;
   pending[id] = sym;
   ws.send(JSON.stringify({
-    ticks_history: sym, style:'candles', granularity: +granSel.value,
-    count: 200, end:'latest', subscribe:1, req_id:id
+    ticks_history: sym,
+    style: 'candles',
+    granularity: +granSel.value,
+    count: 200,
+    end: 'latest',
+    subscribe: 1,
+    req_id: id
   }));
 }
 
-granSel.onchange = () => {
-  SYMBOLS.forEach(s => { state[s.code] = {candles:[], ema:[], cci:[], atr:[], pivotsHigh:[], pivotsLow:[], signal:null}; });
+function forceRefresh(){
+  SYMBOLS.forEach(s => {
+    state[s.code] = {candles:[], ema:[], cci:[], atr:[], pivotsHigh:[], pivotsLow:[], signal:null, status:'idle', error:null};
+    setCardStatus(s.code, 'idle');
+    const badge = document.getElementById('badge-'+s.code);
+    if (badge) { badge.textContent = 'WAIT'; badge.className = 'badge wait'; }
+  });
   if (ws && ws.readyState === 1) ws.close();
-};
+  else connect();
+}
 
-// ---------- indicators ----------
+granSel.onchange = forceRefresh;
+document.getElementById('btnRefresh').onclick = forceRefresh;
+
+// indicators (unchanged logic)
 function ema(values, period){
   const k = 2/(period+1);
   const out = [];
   values.forEach((v,i) => out.push(i===0 ? v : v*k + out[i-1]*(1-k)));
   return out;
 }
-
 function cci(candles, period){
   const tp = candles.map(c => (c.high+c.low+c.close)/3);
   const out = new Array(candles.length).fill(null);
@@ -229,7 +281,6 @@ function cci(candles, period){
   }
   return out;
 }
-
 function atr(candles, period){
   const trs = candles.map((c,i) => {
     if (i===0) return c.high-c.low;
@@ -242,7 +293,6 @@ function atr(candles, period){
   }
   return out;
 }
-
 function findPivots(emaArr, lookback){
   const highs = [], lows = [];
   for (let i=lookback; i<emaArr.length-lookback; i++){
@@ -253,7 +303,6 @@ function findPivots(emaArr, lookback){
   return {highs, lows};
 }
 
-// ---------- signal logic (exact match to your chart) ----------
 function recompute(sym){
  try {
   const s = state[sym];
@@ -278,7 +327,6 @@ function recompute(sym){
 
   let signal = null;
 
-  // SELL: lower high pivots + price broke below P2 + CCI < -threshold
   if (highs.length >= 2) {
     const p2 = highs[highs.length-1];
     const p1 = highs[highs.length-2];
@@ -287,13 +335,9 @@ function recompute(sym){
       const projIndex = p2.index + projMult * (p2.index - p1.index);
       const tp = p2.price + slope * (projIndex - p2.index);
       const sl = p2.price + slBufMult * lastAtr;
-      if (tp < lastClose) {
-        signal = {dir:'SELL', entry:lastClose, sl, tp, p1, p2, projIndex};
-      }
+      if (tp < lastClose) signal = {dir:'SELL', entry:lastClose, sl, tp, p1, p2, projIndex};
     }
   }
-
-  // BUY: higher low pivots + price broke above P2 + CCI > +threshold
   if (!signal && lows.length >= 2) {
     const p2 = lows[lows.length-1];
     const p1 = lows[lows.length-2];
@@ -302,21 +346,17 @@ function recompute(sym){
       const projIndex = p2.index + projMult * (p2.index - p1.index);
       const tp = p2.price + slope * (projIndex - p2.index);
       const sl = p2.price - slBufMult * lastAtr;
-      if (tp > lastClose) {
-        signal = {dir:'BUY', entry:lastClose, sl, tp, p1, p2, projIndex};
-      }
+      if (tp > lastClose) signal = {dir:'BUY', entry:lastClose, sl, tp, p1, p2, projIndex};
     }
   }
-
   s.signal = signal;
   render(sym);
  } catch (err) {
-  logError('recompute(' + sym + ')', err);
+  logError('recompute('+sym+')', err);
  }
 }
 
-// ---------- rendering ----------
-function fmt(n){ return n === null || n === undefined || !isFinite(n) ? '—' : n.toFixed(n > 100 ? 2 : 4); }
+function fmt(n){ return (n === null || n === undefined || !isFinite(n)) ? '—' : n.toFixed(n > 100 ? 2 : 4); }
 
 function render(sym){
  try {
@@ -349,7 +389,7 @@ function render(sym){
   card.style.display = (signalsOnlyEl.checked && !s.signal) ? 'none' : '';
   drawChart(sym);
  } catch (err) {
-  logError('render(' + sym + ')', err);
+  logError('render('+sym+')', err);
  }
 }
 
@@ -392,8 +432,8 @@ function drawChart(sym){
   const y = v => H - ((v - lo) / range) * (H - 12) - 6;
   const finite = (...vals) => vals.every(v => typeof v === 'number' && isFinite(v));
 
-  // --- candlesticks ---
-  const candleW = Math.max(2, (W / spanCount) * 0.6);
+  // candles
+  const candleW = Math.max(2, (W / spanCount) * 0.55);
   sliceCandles.forEach((c, i) => {
     const idx = start + i;
     const cx = x(idx);
@@ -401,14 +441,13 @@ function drawChart(sym){
     const up = c.close >= c.open;
     ctx.strokeStyle = up ? '#22c55e' : '#ef4444';
     ctx.fillStyle = up ? '#22c55e' : '#ef4444';
-    ctx.beginPath();
-    ctx.moveTo(cx, highY); ctx.lineTo(cx, lowY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, highY); ctx.lineTo(cx, lowY); ctx.stroke();
     const bodyTop = Math.min(openY, closeY);
     const bodyH = Math.max(1, Math.abs(closeY - openY));
     ctx.fillRect(cx - candleW/2, bodyTop, candleW, bodyH);
   });
 
-  // --- EMA(9) ---
+  // EMA
   ctx.strokeStyle = '#e8e9f0'; ctx.lineWidth = 1.6; ctx.beginPath();
   sliceEma.forEach((v, i) => {
     const idx = start + i;
@@ -416,12 +455,11 @@ function drawChart(sym){
   });
   ctx.stroke();
 
-  // --- signal fan + levels (exact style of your screenshot) ---
+  // fan + levels
   if (s.signal && projIndex !== null && finite(s.signal.tp, s.signal.sl, s.signal.entry, s.signal.p1.price, s.signal.p2.price)) {
     const {p1, p2, tp, sl, entry, dir} = s.signal;
     const color = dir === 'SELL' ? '#3b82f6' : '#22d3ee';
 
-    // pivot markers
     [p1, p2].forEach(p => {
       const px = x(p.index), py = y(p.price);
       if (!finite(px, py)) return;
@@ -432,31 +470,27 @@ function drawChart(sym){
 
     const tpX = x(projIndex), tpY = y(tp);
     if (finite(tpX, tpY)) {
-      // two converging trend-fan lines → projected TP
       ctx.strokeStyle = color; ctx.lineWidth = 1.4;
       ctx.beginPath(); ctx.moveTo(x(p1.index), y(p1.price)); ctx.lineTo(tpX, tpY); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(x(p2.index), y(p2.price)); ctx.lineTo(tpX, tpY); ctx.stroke();
-
-      // TP marker
       ctx.fillStyle = '#22d3ee';
       ctx.beginPath(); ctx.arc(tpX, tpY, 5, 0, Math.PI*2); ctx.fill();
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
     }
 
-    // horizontal Entry / SL / TP
-    function hLine(val, col, dash){
+    function hLine(val, col){
       const vy = y(val);
       if (!finite(vy)) return;
-      ctx.strokeStyle = col; ctx.setLineDash(dash || []); ctx.lineWidth = 1.2;
+      ctx.strokeStyle = col; ctx.setLineDash([5,3]); ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.moveTo(0, vy); ctx.lineTo(W, vy); ctx.stroke();
       ctx.setLineDash([]);
     }
-    hLine(entry, '#ef4444', [5,3]);
-    hLine(sl, '#ef4444', [5,3]);
-    hLine(tp, '#22d3ee', [5,3]);
+    hLine(entry, '#ef4444');
+    hLine(sl, '#ef4444');
+    hLine(tp, '#22d3ee');
   }
  } catch (err) {
-  logError('drawChart(' + sym + ')', err);
+  logError('drawChart('+sym+')', err);
  }
 }
 
