@@ -43,7 +43,6 @@
   .cci b{color:var(--orange);}
   .card-status{font-size:10px;color:var(--dim);margin-top:4px;font-family:var(--mono);}
   footer{padding:16px 18px;color:var(--dim);font-size:11px;line-height:1.6;}
-  footer code{color:var(--cyan);}
 </style>
 </head>
 <body>
@@ -73,9 +72,9 @@
 <div class="grid" id="grid"></div>
 
 <footer>
-  Automatically loads only the Volatility / Boom / Crash indices that are currently active on the Deriv public WebSocket.<br>
-  Logic: two consecutive EMA(9) swing pivots → break + CCI confirmation → Entry / SL (ATR) / TP (projected fan).<br>
-  Educational tool only — not financial advice.
+  Loads Volatility / Boom / Crash indices that the API currently allows.<br>
+  Logic: two consecutive EMA(9) swing pivots → break + CCI → Entry / SL / TP (fan projection).<br>
+  Educational only — not financial advice.
 </footer>
 
 <script>
@@ -90,7 +89,25 @@ function logError(prefix, err){
 window.addEventListener('error', e => logError('Runtime', e.error||e.message));
 window.addEventListener('unhandledrejection', e => logError('Promise', e.reason));
 
-let SYMBOLS = [];          // filled dynamically from active_symbols
+// Fallback list – used if active_symbols returns nothing useful
+const FALLBACK = [
+  {code:'1HZ10V',  name:'Volatility 10 (1s) Index'},
+  {code:'1HZ25V',  name:'Volatility 25 (1s) Index'},
+  {code:'1HZ50V',  name:'Volatility 50 (1s) Index'},
+  {code:'1HZ75V',  name:'Volatility 75 (1s) Index'},
+  {code:'1HZ100V', name:'Volatility 100 (1s) Index'},
+  {code:'R_10',    name:'Volatility 10 Index'},
+  {code:'R_25',    name:'Volatility 25 Index'},
+  {code:'R_50',    name:'Volatility 50 Index'},
+  {code:'R_75',    name:'Volatility 75 Index'},
+  {code:'R_100',   name:'Volatility 100 Index'},
+  {code:'BOOM1000',name:'Boom 1000 Index'},
+  {code:'BOOM500', name:'Boom 500 Index'},
+  {code:'CRASH1000',name:'Crash 1000 Index'},
+  {code:'CRASH500', name:'Crash 500 Index'}
+];
+
+let SYMBOLS = [];
 const state = {};
 let ws = null, reqId = 1, pending = {}, pingTimer = null;
 
@@ -113,6 +130,7 @@ function setCardStatus(sym, txt, isError=false){
 }
 
 function createCard(s){
+  if (document.getElementById('card-'+s.code)) return;
   const card = document.createElement('div');
   card.className = 'card';
   card.id = 'card-' + s.code;
@@ -135,13 +153,29 @@ function createCard(s){
   state[s.code] = {candles:[], ema:[], cci:[], atr:[], pivotsHigh:[], pivotsLow:[], signal:null, status:'idle', error:null};
 }
 
+function startCandleRequests(){
+  statusText.textContent = `connected – ${SYMBOLS.length} instruments`;
+  grid.innerHTML = '';
+  SYMBOLS.forEach(createCard);
+  let i = 0;
+  function next(){
+    if (i >= SYMBOLS.length) return;
+    const sym = SYMBOLS[i++].code;
+    setCardStatus(sym, 'loading…');
+    const badge = document.getElementById('badge-'+sym);
+    if (badge){ badge.textContent='…'; badge.className='badge loading'; }
+    requestCandles(sym);
+    setTimeout(next, 400);
+  }
+  next();
+}
+
 function connect(){
   if (ws) try{ws.close();}catch(e){}
   ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
   ws.onopen = () => {
     dot.classList.add('on');
     statusText.textContent = 'connected – fetching symbols…';
-    // 1. Ask for currently active symbols
     ws.send(JSON.stringify({
       active_symbols: 'brief',
       product_type: 'basic',
@@ -169,42 +203,41 @@ function connect(){
           const badge = document.getElementById('badge-'+sym);
           if (badge){ badge.textContent='ERR'; badge.className='badge error'; }
         }
-        console.warn('API error', data.error);
         return;
       }
 
-      // ----- active symbols response -----
+      // ----- active symbols (handles both old & new field names) -----
       if (data.msg_type === 'active_symbols') {
         const list = data.active_symbols || [];
-        // keep only Volatility / Boom / Crash indices
         const wanted = list.filter(s => {
-          const sym = s.symbol || '';
-          const name = (s.display_name || '').toLowerCase();
-          return /^(R_|1HZ|BOOM|CRASH)/i.test(sym) ||
+          const code = (s.symbol || s.underlying_symbol || '').toUpperCase();
+          const name = (s.display_name || s.underlying_symbol_name || '').toLowerCase();
+          return /^(R_|1HZ|BOOM|CRASH)/.test(code) ||
                  name.includes('volatility') || name.includes('boom') || name.includes('crash');
-        });
-        SYMBOLS = wanted.map(s => ({
-          code: s.symbol,
-          name: s.display_name || s.symbol
+        }).map(s => ({
+          code: s.symbol || s.underlying_symbol,
+          name: s.display_name || s.underlying_symbol_name || s.symbol || s.underlying_symbol
         }));
-        // clear old cards and rebuild
-        grid.innerHTML = '';
-        SYMBOLS.forEach(createCard);
-        statusText.textContent = `connected – ${SYMBOLS.length} instruments`;
-        // request candles sequentially
-        let i = 0;
-        function next(){
-          if (i >= SYMBOLS.length) return;
-          const sym = SYMBOLS[i++].code;
-          setCardStatus(sym, 'loading…');
-          requestCandles(sym);
-          setTimeout(next, 350);
+
+        // unique + prefer 1s indices first
+        const seen = new Set();
+        SYMBOLS = wanted.filter(s => {
+          if (seen.has(s.code)) return false;
+          seen.add(s.code);
+          return true;
+        });
+
+        // if API returned nothing useful → use fallback
+        if (SYMBOLS.length === 0) {
+          console.warn('active_symbols returned 0 matching instruments – using fallback list');
+          SYMBOLS = FALLBACK.slice();
         }
-        next();
+
+        startCandleRequests();
         return;
       }
 
-      // ----- candles history -----
+      // ----- candles -----
       if (data.msg_type === 'candles') {
         const sym = pending[data.req_id];
         if (!sym || !Array.isArray(data.candles)) return;
@@ -214,7 +247,7 @@ function connect(){
         setCardStatus(sym, 'live (' + state[sym].candles.length + ')');
         recompute(sym);
       }
-      // ----- live ohlc updates -----
+      // ----- live updates -----
       else if (data.msg_type === 'ohlc' && data.ohlc) {
         const sym = data.ohlc.symbol;
         if (!state[sym]) return;
@@ -258,7 +291,7 @@ function forceRefresh(){
 granSel.onchange = forceRefresh;
 document.getElementById('btnRefresh').onclick = forceRefresh;
 
-// ---------- indicators (same logic as before) ----------
+// ---------- indicators ----------
 function ema(values, period){
   const k = 2/(period+1);
   const out = [];
@@ -351,6 +384,7 @@ function render(sym){
     const last = s.candles[s.candles.length-1];
     const badge = document.getElementById('badge-'+sym);
     const card = document.getElementById('card-'+sym);
+    if (!badge || !card) return;
     document.getElementById('price-'+sym).textContent = fmt(last.close);
     document.getElementById('cci-'+sym).textContent = s.cci[s.cci.length-1]!=null ? s.cci[s.cci.length-1].toFixed(2) : '—';
     card.classList.remove('signal-sell','signal-buy');
