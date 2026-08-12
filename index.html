@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Trend-Fan Signal Scanner</title>
+<title>Trend-Fan Signal Scanner (M5 + H1)</title>
 <style>
   :root{--bg:#0a0a0e;--panel:#12131a;--panel2:#181a24;--border:#242633;--white:#e8e9f0;--dim:#8a8da3;--blue:#3b82f6;--cyan:#22d3ee;--red:#ef4444;--green:#22c55e;--orange:#f59e0b;--mono:'SF Mono','Consolas',monospace;}
   *{box-sizing:border-box;}body{margin:0;background:var(--bg);color:var(--white);font-family:-apple-system,Segoe UI,Roboto,sans-serif;}
@@ -35,16 +35,17 @@
 </head>
 <body>
 <header>
-  <h1>Trend-Fan <span>Signal Scanner</span></h1>
+  <h1>Trend-Fan <span>Signal Scanner</span> (M5 + H1)</h1>
   <div class="status"><span class="dot" id="dot"></span><span id="statusText">connecting…</span></div>
 </header>
 
 <div class="controls">
   <label>Timeframe
     <select id="granularity">
+      <option value="300" selected>M5 (5 min)</option>
       <option value="900">M15</option>
       <option value="1800">M30</option>
-      <option value="3600" selected>H1</option>
+      <option value="3600">H1 (1 hour)</option>
       <option value="14400">H4</option>
     </select>
   </label>
@@ -59,6 +60,7 @@
 <footer>
   Uses the same public endpoint as the Over/Under tool (no App ID needed).<br>
   Logic: two consecutive EMA(9) swing pivots → break + CCI → Entry / SL / TP (fan projection).<br>
+  Now supports M5 (5-min) and H1 (1-hour).<br>
   Educational only — not financial advice.
 </footer>
 
@@ -131,7 +133,6 @@ function connect(){
   ws.onopen = () => {
     dot.classList.add('on');
     statusText.textContent = 'connected – loading…';
-    // sequential requests (same style as Over/Under tool)
     let i = 0;
     function next(){
       if(i >= SYMBOLS.length) return;
@@ -169,7 +170,6 @@ function connect(){
         return;
       }
 
-      // history candles (same as Over/Under uses for ticks)
       if(data.msg_type === 'candles' || (data.msg_type === 'history' && data.candles)){
         const sym = pending[data.req_id];
         if(!sym) return;
@@ -184,7 +184,6 @@ function connect(){
         setCardStatus(sym, 'live ('+state[sym].candles.length+')');
         recompute(sym);
       }
-      // live ohlc updates
       else if(data.msg_type === 'ohlc' && data.ohlc){
         const sym = data.ohlc.symbol;
         if(!state[sym]) return;
@@ -202,10 +201,6 @@ function connect(){
         setCardStatus(sym, 'live ('+arr.length+')');
         recompute(sym);
       }
-      // also accept tick history style (some public responses)
-      else if(data.msg_type === 'history' && data.history && data.history.prices){
-        // convert ticks → simple candles if needed (rare)
-      }
     }catch(e){console.error(e);}
   };
 }
@@ -214,11 +209,10 @@ function requestCandles(sym){
   if(!ws || ws.readyState !== 1) return;
   const id = reqId++;
   pending[id] = sym;
-  // exactly the same request style the Over/Under tool uses, but for candles
   ws.send(JSON.stringify({
     ticks_history: sym,
     adjust_start_time: 1,
-    count: 200,
+    count: 250,               // a bit more history for M5
     end: 'latest',
     style: 'candles',
     granularity: +granSel.value,
@@ -236,7 +230,7 @@ document.getElementById('btnRefresh').onclick = () => {
 };
 granSel.onchange = () => document.getElementById('btnRefresh').click();
 
-// ===== indicators (same Trend-Fan logic) =====
+// ===== indicators =====
 function ema(values,period){const k=2/(period+1);const out=[];values.forEach((v,i)=>out.push(i===0?v:v*k+out[i-1]*(1-k)));return out;}
 function cci(candles,period){const tp=candles.map(c=>(c.high+c.low+c.close)/3);const out=new Array(candles.length).fill(null);for(let i=period-1;i<candles.length;i++){const slice=tp.slice(i-period+1,i+1);const sma=slice.reduce((a,b)=>a+b,0)/period;const md=slice.reduce((a,b)=>a+Math.abs(b-sma),0)/period;out[i]=md===0?0:(tp[i]-sma)/(0.015*md);}return out;}
 function atr(candles,period){const trs=candles.map((c,i)=>{if(i===0)return c.high-c.low;const pc=candles[i-1].close;return Math.max(c.high-c.low,Math.abs(c.high-pc),Math.abs(c.low-pc));});const out=new Array(candles.length).fill(null);for(let i=period-1;i<candles.length;i++)out[i]=trs.slice(i-period+1,i+1).reduce((a,b)=>a+b,0)/period;return out;}
@@ -347,7 +341,6 @@ function drawChart(sym){
     const x = i => ((i-start)/spanCount)*(W-12)+6;
     const y = v => H-((v-lo)/range)*(H-12)-6;
     const finite = (...v) => v.every(n => typeof n==='number' && isFinite(n));
-    // candles
     const candleW = Math.max(2,(W/spanCount)*0.55);
     sliceCandles.forEach((c,i)=>{
       const idx=start+i, cx=x(idx);
@@ -358,11 +351,9 @@ function drawChart(sym){
       ctx.beginPath(); ctx.moveTo(cx,highY); ctx.lineTo(cx,lowY); ctx.stroke();
       ctx.fillRect(cx-candleW/2, Math.min(openY,closeY), candleW, Math.max(1,Math.abs(closeY-openY)));
     });
-    // EMA
     ctx.strokeStyle='#e8e9f0'; ctx.lineWidth=1.6; ctx.beginPath();
     sliceEma.forEach((v,i)=>{const idx=start+i; if(i===0) ctx.moveTo(x(idx),y(v)); else ctx.lineTo(x(idx),y(v));});
     ctx.stroke();
-    // fan
     if(s.signal && projIndex!==null && finite(s.signal.tp,s.signal.sl,s.signal.entry,s.signal.p1.price,s.signal.p2.price)){
       const {p1,p2,tp,sl,entry,dir} = s.signal;
       const color = dir==='SELL'?'#3b82f6':'#22d3ee';
