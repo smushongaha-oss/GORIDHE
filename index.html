@@ -1,514 +1,561 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Trend-Fan Signal Scanner – Improved Accuracy</title>
-<style>
-  :root{--bg:#0a0a0e;--panel:#12131a;--panel2:#181a24;--border:#242633;--white:#e8e9f0;--dim:#8a8da3;--blue:#3b82f6;--cyan:#22d3ee;--red:#ef4444;--green:#22c55e;--orange:#f59e0b;--mono:'SF Mono','Consolas',monospace;}
-  *{box-sizing:border-box;}body{margin:0;background:var(--bg);color:var(--white);font-family:-apple-system,Segoe UI,Roboto,sans-serif;}
-  header{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;position:sticky;top:0;background:var(--bg);z-index:10;}
-  header h1{font-size:16px;margin:0;font-weight:600;}header h1 span{color:var(--cyan);}
-  .status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim);}
-  .dot{width:8px;height:8px;border-radius:50%;background:var(--red);}.dot.on{background:var(--green);box-shadow:0 0 6px var(--green);}
-  .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--border);font-size:12px;color:var(--dim);}
-  .controls label{display:flex;align-items:center;gap:6px;}
-  select,input[type=number]{background:var(--panel2);color:var(--white);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:12px;font-family:var(--mono);}
-  button{background:var(--panel2);color:var(--cyan);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;padding:16px 18px;}
-  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px;transition:border-color .2s;}
-  .card.signal-sell{border-color:rgba(239,68,68,.55);}.card.signal-buy{border-color:rgba(34,197,94,.55);}
-  .card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;}
-  .sym{font-weight:600;font-size:13px;}.sym small{display:block;color:var(--dim);font-weight:400;font-size:10px;margin-top:2px;}
-  .badge{font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;}
-  .badge.sell{background:rgba(239,68,68,.15);color:var(--red);}.badge.buy{background:rgba(34,197,94,.15);color:var(--green);}
-  .badge.wait{background:rgba(138,141,163,.12);color:var(--dim);}.badge.loading{background:rgba(59,130,246,.15);color:var(--blue);}
-  .badge.error{background:rgba(239,68,68,.2);color:var(--red);}
-  canvas{width:100%;height:160px;display:block;border-radius:6px;background:#000;}
-  .rows{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;margin-top:8px;font-family:var(--mono);font-size:11px;}
-  .rows .k{color:var(--dim);}.rows .v{text-align:right;}
-  .v.entry{color:var(--white);}.v.sl{color:var(--red);}.v.tp{color:var(--cyan);}
-  .cci{font-size:10px;color:var(--dim);margin-top:6px;font-family:var(--mono);}.cci b{color:var(--orange);}
-  .meta{font-size:10px;color:var(--dim);margin-top:4px;font-family:var(--mono);display:flex;justify-content:space-between;}
-  .card-status{font-size:10px;color:var(--dim);margin-top:4px;font-family:var(--mono);}
-  footer{padding:16px 18px;color:var(--dim);font-size:11px;line-height:1.6;}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChartPrime – Volatility 100 (1s) REAL LIVE</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0a;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 15px;
+    }
+    .container {
+      width: 100%;
+      max-width: 1150px;
+      background: #111;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+      border: 1px solid #222;
+    }
+    .header {
+      padding: 12px 20px;
+      background: #0d0d0d;
+      border-bottom: 1px solid #222;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .logo { font-weight: 700; font-size: 16px; letter-spacing: 0.5px; }
+    .logo span { color: #00ff9d; }
+    .live-badge {
+      background: #ff1744;
+      color: white;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 4px;
+      animation: pulse 1.4s infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      font-size: 12px;
+    }
+    button {
+      background: #222;
+      color: #eee;
+      border: 1px solid #444;
+      padding: 4px 12px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    button:hover { background: #333; }
+    button.active { background: #00c853; color: #000; border-color: #00c853; }
+
+    .chart-wrapper {
+      position: relative;
+      width: 100%;
+      height: 540px;
+      background: #0a0a0a;
+    }
+    canvas { width: 100%; height: 100%; display: block; }
+
+    .label {
+      position: absolute;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 3px;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .label-s { background: #ff3b3b; color: white; }
+    .label-b { background: #00c853; color: white; }
+    .label-target {
+      background: rgba(0,200,83,0.15);
+      color: #00ff9d;
+      border: 1px solid #00ff9d;
+    }
+    .label-pattern {
+      background: rgba(255,255,255,0.08);
+      color: #aaa;
+      border: 1px solid #444;
+    }
+    .label-ob-bull {
+      background: rgba(0,200,83,0.85);
+      color: #000;
+      font-size: 10px;
+    }
+    .label-ob-bear {
+      background: rgba(255,59,59,0.85);
+      color: #fff;
+      font-size: 10px;
+    }
+
+    .volume-bar {
+      display: flex;
+      height: 34px;
+      background: #111;
+      border-top: 1px solid #222;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .bear {
+      background: #c62828;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 14px;
+      min-width: 120px;
+    }
+    .bull {
+      background: #2e7d32;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+    }
+    .delta {
+      background: #1a1a1a;
+      color: #00e676;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 18px;
+      border-left: 1px solid #333;
+      min-width: 130px;
+    }
+    .footer {
+      padding: 9px 20px;
+      font-size: 12px;
+      color: #666;
+      background: #0d0d0d;
+      border-top: 1px solid #1a1a1a;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #666;
+      margin-right: 6px;
+    }
+    .status-dot.connected { background: #00c853; }
+  </style>
 </head>
 <body>
-<header>
-  <h1>Trend-Fan <span>Improved</span> Signal Scanner</h1>
-  <div class="status"><span class="dot" id="dot"></span><span id="statusText">connecting…</span></div>
-</header>
 
-<div class="controls">
-  <label>Timeframe
-    <select id="granularity">
-      <option value="300" selected>M5</option>
-      <option value="900">M15</option>
-      <option value="1800">M30</option>
-      <option value="3600">H1</option>
-      <option value="14400">H4</option>
-    </select>
-  </label>
-  <label>Projection ×<input id="projMult" type="number" value="2.0" step="0.1" min="1.2" max="4" style="width:56px"></label>
-  <label>CCI threshold<input id="cciThresh" type="number" value="55" step="5" min="20" max="120" style="width:56px"></label>
-  <label>SL buffer<input id="slBuf" type="number" value="1.1" step="0.1" min="0.5" max="3" style="width:56px"></label>
-  <label><input type="checkbox" id="signalsOnly" checked> Signals only</label>
-  <button id="btnRefresh">Force Refresh</button>
+<div class="container">
+  <div class="header">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div class="logo">CHART<span>PRIME</span> · Volatility 100 (1s)</div>
+      <div class="live-badge" id="liveBadge">● CONNECTING...</div>
+      <div id="priceDisplay" style="font-size:14px;font-weight:600;color:#00ff9d;">—</div>
+    </div>
+
+    <div class="controls">
+      <button id="btnZones" class="active">Liquidity Zones</button>
+      <button id="btnProfile" class="active">Volume Profile</button>
+      <button id="btnOB" class="active">Order Blocks</button>
+      <button id="btnReconnect">Reconnect</button>
+    </div>
+  </div>
+
+  <div class="chart-wrapper" id="chartWrapper">
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="volume-bar">
+    <div class="bear" id="bearPct">Bear % : —</div>
+    <div class="bull" id="bullPct">Bull % : —</div>
+    <div class="delta" id="delta">Delta —</div>
+  </div>
+
+  <div class="footer">
+    <span><span class="status-dot" id="statusDot"></span>Real Deriv Public WS • 1HZ100V • 1s</span>
+    <span id="status">Connecting to Deriv...</span>
+  </div>
 </div>
 
-<div class="grid" id="grid"></div>
-<footer>
-  <strong>Accuracy improvements:</strong> stronger pivots • fresh-break only • adaptive SL • R:R filter • quality score<br>
-  Educational only — not financial advice. Synthetic indices remain high-risk.
-</footer>
-
 <script>
-const PUBLIC_WS = 'wss://api.derivws.com/trading/v1/options/ws/public';
+  const canvas = document.getElementById('chart');
+  const ctx = canvas.getContext('2d');
+  const wrapper = document.getElementById('chartWrapper');
 
-const SYMBOLS = [
-  {code:'R_10', name:'Volatility 10'},
-  {code:'R_25', name:'Volatility 25'},
-  {code:'R_50', name:'Volatility 50'},
-  {code:'R_75', name:'Volatility 75'},
-  {code:'R_100', name:'Volatility 100'},
-  {code:'1HZ10V', name:'Vol 10 (1s)'},
-  {code:'1HZ25V', name:'Vol 25 (1s)'},
-  {code:'1HZ50V', name:'Vol 50 (1s)'},
-  {code:'1HZ75V', name:'Vol 75 (1s)'},
-  {code:'1HZ100V', name:'Vol 100 (1s)'},
-  {code:'BOOM1000', name:'Boom 1000'},
-  {code:'BOOM500', name:'Boom 500'},
-  {code:'CRASH1000', name:'Crash 1000'},
-  {code:'CRASH500', name:'Crash 500'}
-];
+  // Official public endpoint from your code
+  const PUBLIC_WS = 'wss://api.derivws.com/trading/v1/options/ws/public';
+  const SYMBOL = '1HZ100V';   // Volatility 100 (1s)
 
-const state = {};
-SYMBOLS.forEach(s => state[s.code] = {candles:[], ema:[], cci:[], atr:[], signal:null, status:'idle', strength:0});
+  let candles = [];          // 1-second candles built from ticks
+  let currentCandle = null;
+  let showZones = true;
+  let showProfile = true;
+  let showOB = true;
+  let ws = null;
+  let lastTickTime = 0;
 
-let ws = null, reqId = 1, pending = {}, pingTimer = null;
-
-const grid = document.getElementById('grid');
-const dot = document.getElementById('dot');
-const statusText = document.getElementById('statusText');
-const granSel = document.getElementById('granularity');
-const projMultEl = document.getElementById('projMult');
-const cciThreshEl = document.getElementById('cciThresh');
-const slBufEl = document.getElementById('slBuf');
-const signalsOnlyEl = document.getElementById('signalsOnly');
-
-SYMBOLS.forEach(s => {
-  const card = document.createElement('div');
-  card.className = 'card';
-  card.id = 'card-' + s.code;
-  card.innerHTML = `
-    <div class="card-top">
-      <div class="sym">${s.code}<small>${s.name}</small></div>
-      <div class="badge wait" id="badge-${s.code}">WAIT</div>
-    </div>
-    <canvas id="canvas-${s.code}" width="640" height="320"></canvas>
-    <div class="rows">
-      <div class="k">Price</div><div class="v" id="price-${s.code}">—</div>
-      <div class="k">Entry</div><div class="v entry" id="entry-${s.code}">—</div>
-      <div class="k">SL</div><div class="v sl" id="sl-${s.code}">—</div>
-      <div class="k">TP</div><div class="v tp" id="tp-${s.code}">—</div>
-    </div>
-    <div class="meta">
-      <span>Strength <b id="str-${s.code}">0</b></span>
-      <span>R:R <b id="rr-${s.code}">—</b></span>
-    </div>
-    <div class="cci">CCI(14) <b id="cci-${s.code}">—</b></div>
-    <div class="card-status" id="status-${s.code}">idle</div>`;
-  grid.appendChild(card);
-});
-
-function setCardStatus(sym, txt){
-  const el = document.getElementById('status-'+sym);
-  if(el) el.textContent = txt;
-  if(state[sym]) state[sym].status = txt;
-}
-
-function connect(){
-  if(ws) try{ws.close();}catch(e){}
-  ws = new WebSocket(PUBLIC_WS);
-
-  ws.onopen = () => {
-    dot.classList.add('on');
-    statusText.textContent = 'connected – loading…';
-    let i = 0;
-    function next(){
-      if(i >= SYMBOLS.length) return;
-      const sym = SYMBOLS[i++].code;
-      setCardStatus(sym, 'loading…');
-      const badge = document.getElementById('badge-'+sym);
-      if(badge){badge.textContent='…'; badge.className='badge loading';}
-      requestCandles(sym);
-      setTimeout(next, 320);
-    }
-    next();
-    clearInterval(pingTimer);
-    pingTimer = setInterval(()=>{if(ws&&ws.readyState===1) ws.send(JSON.stringify({ping:1}));},25000);
+  // Controls
+  document.getElementById('btnZones').onclick = function() {
+    showZones = !showZones;
+    this.classList.toggle('active');
+    draw();
   };
-
-  ws.onclose = () => {
-    dot.classList.remove('on');
-    statusText.textContent = 'disconnected – retrying…';
-    clearInterval(pingTimer);
-    setTimeout(connect, 4000);
+  document.getElementById('btnProfile').onclick = function() {
+    showProfile = !showProfile;
+    this.classList.toggle('active');
+    draw();
   };
+  document.getElementById('btnOB').onclick = function() {
+    showOB = !showOB;
+    this.classList.toggle('active');
+    draw();
+  };
+  document.getElementById('btnReconnect').onclick = () => connect();
 
-  ws.onerror = () => {statusText.textContent = 'connection error';};
+  function connect() {
+    if (ws) try { ws.close(); } catch(e) {}
 
-  ws.onmessage = (msg) => {
-    try{
-      const data = JSON.parse(msg.data);
-      if(data.error){
-        const sym = pending[data.req_id];
-        if(sym){
-          setCardStatus(sym, 'ERR: '+(data.error.message||data.error.code));
-          const badge = document.getElementById('badge-'+sym);
-          if(badge){badge.textContent='ERR'; badge.className='badge error';}
+    ws = new WebSocket(PUBLIC_WS);
+
+    ws.onopen = () => {
+      document.getElementById('liveBadge').textContent = '● LIVE 1s';
+      document.getElementById('liveBadge').style.background = '#ff1744';
+      document.getElementById('statusDot').classList.add('connected');
+      document.getElementById('status').textContent = 'Connected • Subscribing to 1HZ100V ticks...';
+
+      // Get recent ticks history to bootstrap
+      ws.send(JSON.stringify({
+        ticks_history: SYMBOL,
+        end: 'latest',
+        count: 500,
+        style: 'ticks',
+        req_id: 1
+      }));
+
+      // Live ticks subscription
+      ws.send(JSON.stringify({
+        ticks: SYMBOL,
+        subscribe: 1,
+        req_id: 2
+      }));
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      // Historical ticks → build 1s candles
+      if (data.history && data.history.prices) {
+        const prices = data.history.prices;
+        const times  = data.history.times;
+        candles = [];
+        let sec = Math.floor(times[0]);
+        let o = prices[0], h = prices[0], l = prices[0], c = prices[0];
+
+        for (let i = 0; i < prices.length; i++) {
+          const t = Math.floor(times[i]);
+          const p = prices[i];
+          if (t !== sec) {
+            candles.push({ o, h, l, c, v: 1, t: sec * 1000 });
+            sec = t;
+            o = h = l = c = p;
+          } else {
+            h = Math.max(h, p);
+            l = Math.min(l, p);
+            c = p;
+          }
         }
-        return;
+        if (candles.length > 0) {
+          currentCandle = { ...candles[candles.length - 1] };
+        }
+        draw();
+        document.getElementById('status').textContent = 
+          `1HZ100V • Real 1s candles: ${candles.length}`;
       }
 
-      if(data.msg_type === 'candles' || (data.msg_type === 'history' && data.candles)){
-        const sym = pending[data.req_id];
-        if(!sym) return;
-        const raw = data.candles || data.history?.candles || [];
-        state[sym].candles = raw.map(c => ({
-          epoch: c.epoch || c.open_time,
-          open: +c.open, high: +c.high, low: +c.low, close: +c.close
-        }));
-        setCardStatus(sym, 'live ('+state[sym].candles.length+')');
-        recompute(sym);
+      // Live tick
+      if (data.tick) {
+        const price = parseFloat(data.tick.quote);
+        const epoch = data.tick.epoch;
+        document.getElementById('priceDisplay').textContent = price.toFixed(3);
+
+        const sec = Math.floor(epoch);
+
+        if (!currentCandle || Math.floor(currentCandle.t / 1000) !== sec) {
+          // New 1-second candle
+          if (currentCandle) {
+            candles.push({ ...currentCandle });
+            if (candles.length > 180) candles.shift();
+          }
+          currentCandle = {
+            o: price, h: price, l: price, c: price,
+            v: 1, t: sec * 1000
+          };
+        } else {
+          currentCandle.c = price;
+          currentCandle.h = Math.max(currentCandle.h, price);
+          currentCandle.l = Math.min(currentCandle.l, price);
+          currentCandle.v += 1;
+        }
+        draw();
       }
-      else if(data.msg_type === 'ohlc' && data.ohlc){
-        const sym = data.ohlc.symbol;
-        if(!state[sym]) return;
-        const c = {
-          epoch: data.ohlc.open_time,
-          open: +data.ohlc.open, high: +data.ohlc.high,
-          low: +data.ohlc.low, close: +data.ohlc.close
-        };
-        const arr = state[sym].candles;
-        const last = arr[arr.length-1];
-        if(last && last.epoch === c.epoch) arr[arr.length-1] = c;
-        else {arr.push(c); if(arr.length > 320) arr.shift();}
-        setCardStatus(sym, 'live ('+arr.length+')');
-        recompute(sym);
+
+      if (data.error) {
+        console.error(data.error);
+        document.getElementById('status').textContent = 'Error: ' + (data.error.message || data.error.code);
       }
-    }catch(e){console.error(e);}
-  };
-}
+    };
 
-function requestCandles(sym){
-  if(!ws || ws.readyState !== 1) return;
-  const id = reqId++;
-  pending[id] = sym;
-  ws.send(JSON.stringify({
-    ticks_history: sym,
-    adjust_start_time: 1,
-    count: 280,
-    end: 'latest',
-    style: 'candles',
-    granularity: +granSel.value,
-    subscribe: 1,
-    req_id: id
-  }));
-}
+    ws.onclose = () => {
+      document.getElementById('liveBadge').textContent = '● DISCONNECTED';
+      document.getElementById('liveBadge').style.background = '#666';
+      document.getElementById('statusDot').classList.remove('connected');
+      document.getElementById('status').textContent = 'Disconnected – click Reconnect';
+    };
 
-document.getElementById('btnRefresh').onclick = () => {
-  SYMBOLS.forEach(s => {
-    state[s.code] = {candles:[],ema:[],cci:[],atr:[],signal:null,status:'idle',strength:0};
-  });
-  if(ws && ws.readyState === 1) ws.close();
-  else connect();
-};
-granSel.onchange = () => document.getElementById('btnRefresh').click();
-
-// ===== Improved indicators & logic =====
-function ema(values,period){
-  const k=2/(period+1); const out=[];
-  values.forEach((v,i)=>out.push(i===0?v:v*k+out[i-1]*(1-k)));
-  return out;
-}
-function cci(candles,period){
-  const tp=candles.map(c=>(c.high+c.low+c.close)/3);
-  const out=new Array(candles.length).fill(null);
-  for(let i=period-1;i<candles.length;i++){
-    const slice=tp.slice(i-period+1,i+1);
-    const sma=slice.reduce((a,b)=>a+b,0)/period;
-    const md=slice.reduce((a,b)=>a+Math.abs(b-sma),0)/period;
-    out[i]=md===0?0:(tp[i]-sma)/(0.015*md);
+    ws.onerror = () => {
+      document.getElementById('status').textContent = 'WebSocket error – retrying...';
+      setTimeout(connect, 4000);
+    };
   }
-  return out;
-}
-function atr(candles,period){
-  const trs=candles.map((c,i)=>{
-    if(i===0) return c.high-c.low;
-    const pc=candles[i-1].close;
-    return Math.max(c.high-c.low, Math.abs(c.high-pc), Math.abs(c.low-pc));
-  });
-  const out=new Array(candles.length).fill(null);
-  for(let i=period-1;i<candles.length;i++)
-    out[i]=trs.slice(i-period+1,i+1).reduce((a,b)=>a+b,0)/period;
-  return out;
-}
 
-function findQualityPivots(emaArr, lookback, minBarsApart, minSize){
-  const highs=[], lows=[];
-  for(let i=lookback; i<emaArr.length-lookback; i++){
-    const w = emaArr.slice(i-lookback, i+lookback+1);
-    if(emaArr[i] === Math.max(...w)) highs.push({index:i, price:emaArr[i]});
-    if(emaArr[i] === Math.min(...w)) lows.push({index:i, price:emaArr[i]});
-  }
-  // keep only significant pivots
-  function clean(arr){
-    if(arr.length < 2) return arr;
-    const out = [arr[0]];
-    for(let i=1; i<arr.length; i++){
-      const prev = out[out.length-1];
-      if(arr[i].index - prev.index >= minBarsApart &&
-         Math.abs(arr[i].price - prev.price) >= minSize){
-        out.push(arr[i]);
+  // Order Blocks (same logic)
+  function detectOrderBlocks() {
+    const data = currentCandle ? [...candles, currentCandle] : candles;
+    const obs = [];
+    if (data.length < 20) return obs;
+
+    for (let i = 8; i < data.length - 5; i++) {
+      const c = data[i];
+      const body = Math.abs(c.c - c.o);
+      const range = c.h - c.l || 0.001;
+      const bodyRatio = body / range;
+
+      if (c.c > c.o && bodyRatio > 0.6 && body > 0.8) {
+        for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+          if (data[j].c < data[j].o) {
+            obs.push({ type: 'bull', high: data[j].h, low: data[j].l, startIdx: j, endIdx: data.length - 1 });
+            break;
+          }
+        }
       }
-    }
-    return out;
-  }
-  return {highs: clean(highs), lows: clean(lows)};
-}
-
-function recompute(sym){
-  try{
-    const s = state[sym];
-    if(s.candles.length < 70) return;
-
-    const closes = s.candles.map(c => c.close);
-    s.ema = ema(closes, 9);
-    s.cci = cci(s.candles, 14);
-    s.atr = atr(s.candles, 14);
-
-    const lastIdx = s.candles.length - 1;
-    const lastClose = closes[lastIdx];
-    const lastCci = s.cci[lastIdx];
-    const lastAtr = s.atr[lastIdx] || 0;
-    if(lastAtr === 0) return;
-
-    const projMult = +projMultEl.value;
-    const cciThresh = +cciThreshEl.value;
-    const slBuf = +slBufEl.value;
-
-    // Adaptive settings
-    const isM5 = +granSel.value === 300;
-    const minBars = isM5 ? 6 : 4;
-    const minPivotSize = lastAtr * (isM5 ? 0.45 : 0.35);
-
-    const {highs, lows} = findQualityPivots(s.ema, 4, minBars, minPivotSize);
-
-    let signal = null;
-
-    // ===== SELL =====
-    if(highs.length >= 2){
-      const p2 = highs[highs.length-1];
-      const p1 = highs[highs.length-2];
-
-      // Must be lower high
-      if(p2.price < p1.price){
-        // Fresh break: price was above p2 recently and is now below
-        const barsSincePivot = lastIdx - p2.index;
-        const recentlyBroke = barsSincePivot <= 4 && lastClose < p2.price;
-
-        // Check if the break is fresh (previous bar was still above or equal)
-        const prevClose = closes[lastIdx-1];
-        const justBroke = prevClose >= p2.price && lastClose < p2.price;
-
-        if((recentlyBroke || justBroke) && lastCci != null && lastCci < -cciThresh){
-          const slope = (p2.price - p1.price) / (p2.index - p1.index);
-          const dist = p2.index - p1.index;
-          const projIndex = p2.index + projMult * dist;
-          const tp = p2.price + slope * (projIndex - p2.index);
-
-          // Better SL: last swing high + buffer
-          const sl = Math.max(p2.price, p1.price) + slBuf * lastAtr;
-
-          const risk = sl - lastClose;
-          const reward = lastClose - tp;
-          const rr = risk > 0 ? reward / risk : 0;
-
-          if(tp < lastClose && rr >= 1.2){
-            const strength = Math.min(100, Math.round(
-              (Math.abs(lastCci)/cciThresh)*35 +
-              Math.min(rr,3)*18 +
-              (barsSincePivot <= 2 ? 20 : 10)
-            ));
-            if(strength >= 48){
-              signal = {dir:'SELL', entry:lastClose, sl, tp, p1, p2, projIndex, rr, strength};
-            }
+      if (c.c < c.o && bodyRatio > 0.6 && body > 0.8) {
+        for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+          if (data[j].c > data[j].o) {
+            obs.push({ type: 'bear', high: data[j].h, low: data[j].l, startIdx: j, endIdx: data.length - 1 });
+            break;
           }
         }
       }
     }
+    return obs.slice(-4);
+  }
 
-    // ===== BUY =====
-    if(!signal && lows.length >= 2){
-      const p2 = lows[lows.length-1];
-      const p1 = lows[lows.length-2];
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = wrapper.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(dpr, dpr);
+    draw();
+  }
 
-      if(p2.price > p1.price){
-        const barsSincePivot = lastIdx - p2.index;
-        const recentlyBroke = barsSincePivot <= 4 && lastClose > p2.price;
-        const prevClose = closes[lastIdx-1];
-        const justBroke = prevClose <= p2.price && lastClose > p2.price;
+  function draw() {
+    const data = currentCandle ? [...candles, currentCandle] : candles;
+    if (data.length < 5) return;
 
-        if((recentlyBroke || justBroke) && lastCci != null && lastCci > cciThresh){
-          const slope = (p2.price - p1.price) / (p2.index - p1.index);
-          const dist = p2.index - p1.index;
-          const projIndex = p2.index + projMult * dist;
-          const tp = p2.price + slope * (projIndex - p2.index);
+    const width = wrapper.clientWidth;
+    const height = wrapper.clientHeight;
+    const padding = { top: 30, right: showProfile ? 70 : 40, bottom: 25, left: 12 };
+    const chartW = width - padding.left - padding.right;
+    const chartH = height - padding.top - padding.bottom;
 
-          const sl = Math.min(p2.price, p1.price) - slBuf * lastAtr;
+    ctx.clearRect(0, 0, width, height);
 
-          const risk = lastClose - sl;
-          const reward = tp - lastClose;
-          const rr = risk > 0 ? reward / risk : 0;
+    let min = Infinity, max = -Infinity;
+    data.forEach(c => { min = Math.min(min, c.l); max = Math.max(max, c.h); });
+    const range = max - min || 1;
+    min -= range * 0.07;
+    max += range * 0.09;
 
-          if(tp > lastClose && rr >= 1.2){
-            const strength = Math.min(100, Math.round(
-              (Math.abs(lastCci)/cciThresh)*35 +
-              Math.min(rr,3)*18 +
-              (barsSincePivot <= 2 ? 20 : 10)
-            ));
-            if(strength >= 48){
-              signal = {dir:'BUY', entry:lastClose, sl, tp, p1, p2, projIndex, rr, strength};
-            }
-          }
-        }
+    const xStep = chartW / (data.length - 1);
+    const yScale = chartH / (max - min);
+    const y = p => padding.top + (max - p) * yScale;
+
+    // Grid
+    ctx.strokeStyle = '#161616';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 5; i++) {
+      const yy = padding.top + (chartH / 5) * i;
+      ctx.beginPath();
+      ctx.moveTo(padding.left, yy);
+      ctx.lineTo(width - padding.right, yy);
+      ctx.stroke();
+    }
+
+    // Volume Profile
+    if (showProfile) {
+      const levels = 28;
+      const volProfile = new Array(levels).fill(0);
+      const step = (max - min) / levels;
+      data.forEach(c => {
+        const idx = Math.floor((c.c - min) / step);
+        if (idx >= 0 && idx < levels) volProfile[idx] += c.v;
+      });
+      const maxVol = Math.max(...volProfile) || 1;
+      volProfile.forEach((v, i) => {
+        const barH = chartH / levels;
+        const barW = (v / maxVol) * 55;
+        const yy = padding.top + (levels - 1 - i) * barH;
+        ctx.fillStyle = v > maxVol * 0.65 ? 'rgba(0,255,157,0.45)' : 'rgba(0,200,83,0.18)';
+        ctx.fillRect(width - padding.right + 8, yy, barW, barH - 1);
+      });
+    }
+
+    // Order Blocks
+    if (showOB) {
+      detectOrderBlocks().forEach(ob => {
+        const x1 = padding.left + ob.startIdx * xStep;
+        const x2 = padding.left + ob.endIdx * xStep;
+        const yHigh = y(ob.high);
+        const yLow = y(ob.low);
+        ctx.fillStyle = ob.type === 'bull' ? 'rgba(0,200,83,0.18)' : 'rgba(255,59,59,0.18)';
+        ctx.fillRect(x1, yHigh, x2 - x1, yLow - yHigh);
+        ctx.strokeStyle = ob.type === 'bull' ? 'rgba(0,200,83,0.7)' : 'rgba(255,59,59,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(x1, yHigh, x2 - x1, yLow - yHigh);
+      });
+    }
+
+    // Liquidity Zones
+    if (showZones && data.length > 30) {
+      const zones = [];
+      for (let i = 8; i < data.length - 8; i++) {
+        const isSwingHigh = data[i].h > data[i-1].h && data[i].h > data[i+1].h &&
+                            data[i].h > data[i-3].h && data[i].h > data[i+3].h;
+        const isSwingLow  = data[i].l < data[i-1].l && data[i].l < data[i+1].l &&
+                            data[i].l < data[i-3].l && data[i].l < data[i+3].l;
+        if (isSwingHigh) zones.push({ price: data[i].h, type: 'supply' });
+        if (isSwingLow)  zones.push({ price: data[i].l, type: 'demand' });
       }
+      zones.slice(-5).forEach(z => {
+        const yy = y(z.price);
+        ctx.fillStyle = z.type === 'supply' ? 'rgba(255,59,59,0.10)' : 'rgba(0,200,83,0.10)';
+        ctx.fillRect(padding.left, yy - 7, chartW, 14);
+        ctx.strokeStyle = z.type === 'supply' ? 'rgba(255,59,59,0.35)' : 'rgba(0,200,83,0.35)';
+        ctx.beginPath();
+        ctx.moveTo(padding.left, yy);
+        ctx.lineTo(padding.left + chartW, yy);
+        ctx.stroke();
+      });
     }
 
-    s.signal = signal;
-    s.strength = signal ? signal.strength : 0;
-    render(sym);
-  }catch(e){console.error(e);}
-}
-
-function fmt(n){return (n==null||!isFinite(n))?'—':n.toFixed(n>100?2:4);}
-
-function render(sym){
-  try{
-    const s = state[sym];
-    if(!s || !s.candles.length) return;
-    const last = s.candles[s.candles.length-1];
-    const badge = document.getElementById('badge-'+sym);
-    const card = document.getElementById('card-'+sym);
-
-    document.getElementById('price-'+sym).textContent = fmt(last.close);
-    document.getElementById('cci-'+sym).textContent = s.cci[s.cci.length-1]!=null ? s.cci[s.cci.length-1].toFixed(1) : '—';
-
-    card.classList.remove('signal-sell','signal-buy');
-
-    if(s.signal){
-      badge.textContent = s.signal.dir;
-      badge.className = 'badge ' + (s.signal.dir==='SELL'?'sell':'buy');
-      card.classList.add(s.signal.dir==='SELL'?'signal-sell':'signal-buy');
-      document.getElementById('entry-'+sym).textContent = fmt(s.signal.entry);
-      document.getElementById('sl-'+sym).textContent = fmt(s.signal.sl);
-      document.getElementById('tp-'+sym).textContent = fmt(s.signal.tp);
-      document.getElementById('str-'+sym).textContent = s.signal.strength;
-      document.getElementById('rr-'+sym).textContent = s.signal.rr.toFixed(2);
-    }else{
-      badge.textContent = 'WAIT';
-      badge.className = 'badge wait';
-      document.getElementById('entry-'+sym).textContent = '—';
-      document.getElementById('sl-'+sym).textContent = '—';
-      document.getElementById('tp-'+sym).textContent = '—';
-      document.getElementById('str-'+sym).textContent = '0';
-      document.getElementById('rr-'+sym).textContent = '—';
-    }
-
-    card.style.display = (signalsOnlyEl.checked && !s.signal) ? 'none' : '';
-    drawChart(sym);
-  }catch(e){console.error(e);}
-}
-signalsOnlyEl.onchange = () => SYMBOLS.forEach(s => render(s.code));
-
-function drawChart(sym){
-  try{
-    const s = state[sym];
-    const canvas = document.getElementById('canvas-'+sym);
-    if(!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const W = canvas.width, H = canvas.height;
-    ctx.clearRect(0,0,W,H);
-    const candles = s.candles, emaArr = s.ema;
-    if(!emaArr || emaArr.length < 2) return;
-
-    const visible = 70;
-    const start = Math.max(0, emaArr.length - visible);
-    const sliceEma = emaArr.slice(start);
-    const sliceCandles = candles.slice(start);
-    const projIndex = (s.signal && isFinite(s.signal.projIndex)) ? s.signal.projIndex : null;
-    const maxIndex = projIndex !== null ? Math.max(emaArr.length-1, projIndex) : emaArr.length-1;
-    const spanCount = Math.max(1, maxIndex - start);
-
-    let lo = Math.min(...sliceCandles.map(c=>c.low), ...sliceEma);
-    let hi = Math.max(...sliceCandles.map(c=>c.high), ...sliceEma);
-    if(s.signal && isFinite(s.signal.tp) && isFinite(s.signal.sl)){
-      lo = Math.min(lo, s.signal.tp, s.signal.sl, s.signal.entry);
-      hi = Math.max(hi, s.signal.tp, s.signal.sl, s.signal.entry);
-    }
-    if(!isFinite(lo)||!isFinite(hi)) return;
-    let pad = (hi-lo)*0.13 || Math.abs(hi)*0.01 || 1;
-    lo -= pad; hi += pad;
-    const range = (hi-lo)||1;
-    const x = i => ((i-start)/spanCount)*(W-12)+6;
-    const y = v => H-((v-lo)/range)*(H-12)-6;
-    const finite = (...v) => v.every(n => typeof n==='number' && isFinite(n));
-
-    const candleW = Math.max(2,(W/spanCount)*0.55);
-    sliceCandles.forEach((c,i)=>{
-      const idx=start+i, cx=x(idx);
-      const openY=y(c.open), closeY=y(c.close), highY=y(c.high), lowY=y(c.low);
-      const up = c.close >= c.open;
-      ctx.strokeStyle = up?'#22c55e':'#ef4444';
-      ctx.fillStyle = up?'#22c55e':'#ef4444';
-      ctx.beginPath(); ctx.moveTo(cx,highY); ctx.lineTo(cx,lowY); ctx.stroke();
-      ctx.fillRect(cx-candleW/2, Math.min(openY,closeY), candleW, Math.max(1,Math.abs(closeY-openY)));
+    // Candles
+    const candleW = Math.max(2.5, xStep * 0.55);
+    data.forEach((c, i) => {
+      const x = padding.left + i * xStep;
+      const green = c.c >= c.o;
+      ctx.strokeStyle = green ? '#00c853' : '#ff1744';
+      ctx.fillStyle   = green ? '#00c853' : '#ff1744';
+      ctx.beginPath();
+      ctx.moveTo(x, y(c.h));
+      ctx.lineTo(x, y(c.l));
+      ctx.stroke();
+      const top = y(Math.max(c.o, c.c));
+      const h = Math.max(1, Math.abs(y(c.o) - y(c.c)));
+      ctx.fillRect(x - candleW/2, top, candleW, h);
     });
 
-    ctx.strokeStyle='#e8e9f0'; ctx.lineWidth=1.6; ctx.beginPath();
-    sliceEma.forEach((v,i)=>{const idx=start+i; if(i===0) ctx.moveTo(x(idx),y(v)); else ctx.lineTo(x(idx),y(v));});
-    ctx.stroke();
+    // Structure labels
+    document.querySelectorAll('.label').forEach(el => el.remove());
+    const len = data.length;
+    if (len > 25) {
+      const peakIdx = Math.floor(len * 0.40);
+      const troughIdx = Math.floor(len * 0.72);
+      const breakIdx = Math.floor(len * 0.88);
 
-    if(s.signal && projIndex!==null && finite(s.signal.tp,s.signal.sl,s.signal.entry,s.signal.p1.price,s.signal.p2.price)){
-      const {p1,p2,tp,sl,entry,dir} = s.signal;
-      const color = dir==='SELL'?'#3b82f6':'#22d3ee';
-      [p1,p2].forEach(p=>{
-        const px=x(p.index), py=y(p.price);
-        if(!finite(px,py)) return;
-        ctx.fillStyle=color; ctx.beginPath(); ctx.arc(px,py,4,0,Math.PI*2); ctx.fill();
-        ctx.strokeStyle='#fff'; ctx.lineWidth=1; ctx.stroke();
-      });
-      const tpX=x(projIndex), tpY=y(tp);
-      if(finite(tpX,tpY)){
-        ctx.strokeStyle=color; ctx.lineWidth=1.4;
-        ctx.beginPath(); ctx.moveTo(x(p1.index),y(p1.price)); ctx.lineTo(tpX,tpY); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(x(p2.index),y(p2.price)); ctx.lineTo(tpX,tpY); ctx.stroke();
-        ctx.fillStyle='#22d3ee'; ctx.beginPath(); ctx.arc(tpX,tpY,5,0,Math.PI*2); ctx.fill();
-        ctx.strokeStyle='#fff'; ctx.lineWidth=1; ctx.stroke();
+      function addLabel(text, x, yPos, cls) {
+        const el = document.createElement('div');
+        el.className = `label ${cls}`;
+        el.textContent = text;
+        el.style.left = x + 'px';
+        el.style.top = yPos + 'px';
+        wrapper.appendChild(el);
       }
-      function hLine(val,col){
-        const vy=y(val); if(!finite(vy)) return;
-        ctx.strokeStyle=col; ctx.setLineDash([5,3]); ctx.lineWidth=1.2;
-        ctx.beginPath(); ctx.moveTo(0,vy); ctx.lineTo(W,vy); ctx.stroke(); ctx.setLineDash([]);
-      }
-      hLine(entry,'#ef4444'); hLine(sl,'#ef4444'); hLine(tp,'#22d3ee');
+
+      const sX = padding.left + peakIdx * xStep;
+      const bX = padding.left + troughIdx * xStep;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(sX, y(data[peakIdx].h));
+      ctx.lineTo(bX, y(data[troughIdx].l));
+      ctx.stroke();
+
+      addLabel('S', sX - 6, y(data[peakIdx].h) - 18, 'label-s');
+      addLabel('B', bX - 6, y(data[troughIdx].l) + 8, 'label-b');
+
+      const breakX = padding.left + breakIdx * xStep;
+      const breakY = y(data[breakIdx].c);
+      ctx.beginPath();
+      ctx.arc(breakX, breakY, 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#00ff9d';
+      ctx.fill();
+
+      ctx.strokeStyle = '#00ff9d';
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(breakX, breakY);
+      ctx.lineTo(breakX, y(data[len-1].h) - 6);
+      ctx.lineTo(width - padding.right - 4, y(data[len-1].h) - 6);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      addLabel('Target Hit', breakX + 8, y(data[len-1].h) - 24, 'label-target');
+      addLabel('Pattern Break', breakX - 28, breakY + 12, 'label-pattern');
     }
-  }catch(e){console.error(e);}
-}
 
-connect();
+    // Stats
+    let bulls = 0, bears = 0, delta = 0;
+    const look = Math.min(40, data.length);
+    for (let i = data.length - look; i < data.length; i++) {
+      const c = data[i];
+      const body = Math.abs(c.c - c.o);
+      if (c.c >= c.o) { bulls += body; delta += c.v; }
+      else { bears += body; delta -= c.v; }
+    }
+    const total = bulls + bears || 1;
+    document.getElementById('bullPct').textContent = `Bull % : ${(bulls/total*100).toFixed(2)}`;
+    document.getElementById('bearPct').textContent = `Bear % : ${(bears/total*100).toFixed(2)}`;
+    document.getElementById('delta').textContent = `Delta ${Math.round(delta).toLocaleString()}`;
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+  connect();
 </script>
 </body>
 </html>
