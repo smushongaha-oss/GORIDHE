@@ -181,23 +181,16 @@ function setConnState(live, label){
   statusText.textContent = label;
 }
 
+// Populate the dropdown and pick a default instantly — no waiting on the network for this.
+initialSymbolSetup(FALLBACK_SYMBOLS);
+
 function connect(){
   ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`);
 
   ws.onopen = () => {
-    setConnState(false, 'fetching instrument list');
-    if (!symbolListLoaded) {
-      ws.send(JSON.stringify({ active_symbols: "brief", product_type: "basic" }));
-      clearTimeout(symbolListTimeout);
-      symbolListTimeout = setTimeout(() => {
-        if (!symbolListLoaded) {
-          console.warn('active_symbols timed out — using fallback instrument list');
-          populateSymbolList(FALLBACK_SYMBOLS);
-        }
-      }, 6000);
-    } else if (SYMBOL) {
-      loadSymbol(SYMBOL);
-    }
+    setConnState(false, 'loading ' + SYMBOL);
+    loadSymbol(SYMBOL);
+    ws.send(JSON.stringify({ active_symbols: "brief", product_type: "basic" }));
   };
 
   ws.onmessage = (msg) => {
@@ -210,7 +203,7 @@ function connect(){
     }
 
     if (data.msg_type === "active_symbols") {
-      if (!symbolListLoaded) populateSymbolList(data.active_symbols);
+      upgradeDropdownFromLive(data.active_symbols);
       return;
     }
 
@@ -267,21 +260,27 @@ function connect(){
   ws.onerror = () => { ws.close(); };
 }
 
-function populateSymbolList(symbols){
-  clearTimeout(symbolListTimeout);
-  const vols = symbols
-    .filter(s => /^Volatility/i.test(s.display_name))
-    .map(s => ({ symbol: s.symbol, name: s.display_name, is1s: /\(1s\)/i.test(s.display_name), num: parseInt(s.display_name.replace(/\D+/g, ''), 10) || 0 }))
-    .sort((a, b) => (a.is1s - b.is1s) || (a.num - b.num));
-
+function buildDropdownOptions(list){
   symbolSelect.innerHTML = '';
-  vols.forEach(v => {
+  list.forEach(v => {
     const opt = document.createElement('option');
     opt.value = v.symbol;
     opt.textContent = v.name;
     symbolSelect.appendChild(opt);
   });
   symbolSelect.disabled = false;
+}
+
+function sortVolList(symbols){
+  return symbols
+    .filter(s => /^Volatility/i.test(s.display_name))
+    .map(s => ({ symbol: s.symbol, name: s.display_name, is1s: /\(1s\)/i.test(s.display_name), num: parseInt(s.display_name.replace(/\D+/g, ''), 10) || 0 }))
+    .sort((a, b) => (a.is1s - b.is1s) || (a.num - b.num));
+}
+
+function initialSymbolSetup(symbols){
+  const vols = sortVolList(symbols);
+  buildDropdownOptions(vols);
   symbolListLoaded = true;
 
   const preferred = vols.find(v => v.symbol === '1HZ90V') || vols[0];
@@ -289,6 +288,23 @@ function populateSymbolList(symbols){
     symbolSelect.value = preferred.symbol;
     SYMBOL = preferred.symbol;
     DISPLAY_NAME = preferred.name;
+    mainTitle.textContent = `${DISPLAY_NAME} — H1 BIAS / M1 SNIPER`;
+    subLine.textContent = `${DISPLAY_NAME} · CCI(14) on H1 for trend, CCI(14) on M1 for entry timing`;
+  }
+}
+
+function upgradeDropdownFromLive(symbols){
+  const vols = sortVolList(symbols);
+  if (!vols.length) return;
+  const currentValue = SYMBOL;
+  buildDropdownOptions(vols);
+  const stillPresent = vols.some(v => v.symbol === currentValue);
+  if (stillPresent) {
+    symbolSelect.value = currentValue;
+  } else if (vols[0]) {
+    symbolSelect.value = vols[0].symbol;
+    SYMBOL = vols[0].symbol;
+    DISPLAY_NAME = vols[0].name;
     loadSymbol(SYMBOL);
   }
 }
