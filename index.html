@@ -2,514 +2,396 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Trend-Fan Signal Scanner – Improved Accuracy</title>
+<title>Volatility Index — H1 Bias / M1 Sniper Entry</title>
 <style>
-  :root{--bg:#0a0a0e;--panel:#12131a;--panel2:#181a24;--border:#242633;--white:#e8e9f0;--dim:#8a8da3;--blue:#3b82f6;--cyan:#22d3ee;--red:#ef4444;--green:#22c55e;--orange:#f59e0b;--mono:'SF Mono','Consolas',monospace;}
-  *{box-sizing:border-box;}body{margin:0;background:var(--bg);color:var(--white);font-family:-apple-system,Segoe UI,Roboto,sans-serif;}
-  header{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;position:sticky;top:0;background:var(--bg);z-index:10;}
-  header h1{font-size:16px;margin:0;font-weight:600;}header h1 span{color:var(--cyan);}
-  .status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim);}
-  .dot{width:8px;height:8px;border-radius:50%;background:var(--red);}.dot.on{background:var(--green);box-shadow:0 0 6px var(--green);}
-  .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--border);font-size:12px;color:var(--dim);}
-  .controls label{display:flex;align-items:center;gap:6px;}
-  select,input[type=number]{background:var(--panel2);color:var(--white);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:12px;font-family:var(--mono);}
-  button{background:var(--panel2);color:var(--cyan);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;padding:16px 18px;}
-  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px;transition:border-color .2s;}
-  .card.signal-sell{border-color:rgba(239,68,68,.55);}.card.signal-buy{border-color:rgba(34,197,94,.55);}
-  .card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;}
-  .sym{font-weight:600;font-size:13px;}.sym small{display:block;color:var(--dim);font-weight:400;font-size:10px;margin-top:2px;}
-  .badge{font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;}
-  .badge.sell{background:rgba(239,68,68,.15);color:var(--red);}.badge.buy{background:rgba(34,197,94,.15);color:var(--green);}
-  .badge.wait{background:rgba(138,141,163,.12);color:var(--dim);}.badge.loading{background:rgba(59,130,246,.15);color:var(--blue);}
-  .badge.error{background:rgba(239,68,68,.2);color:var(--red);}
-  canvas{width:100%;height:160px;display:block;border-radius:6px;background:#000;}
-  .rows{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;margin-top:8px;font-family:var(--mono);font-size:11px;}
-  .rows .k{color:var(--dim);}.rows .v{text-align:right;}
-  .v.entry{color:var(--white);}.v.sl{color:var(--red);}.v.tp{color:var(--cyan);}
-  .cci{font-size:10px;color:var(--dim);margin-top:6px;font-family:var(--mono);}.cci b{color:var(--orange);}
-  .meta{font-size:10px;color:var(--dim);margin-top:4px;font-family:var(--mono);display:flex;justify-content:space-between;}
-  .card-status{font-size:10px;color:var(--dim);margin-top:4px;font-family:var(--mono);}
-  footer{padding:16px 18px;color:var(--dim);font-size:11px;line-height:1.6;}
+  :root{
+    --bg:#050914;
+    --panel:#0a1224;
+    --cyan:#33d6ff;
+    --cyan-dim:#1a7a99;
+    --red:#ff4d4d;
+    --amber:#ffb020;
+    --green:#3ddc84;
+    --text:#dff6ff;
+    --muted:#5f7d92;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:radial-gradient(ellipse at top, #0c1930 0%, var(--bg) 70%);
+    color:var(--text);
+    font-family:'Courier New', monospace;
+    display:flex;
+    justify-content:center;
+    padding:24px 16px;
+  }
+  .frame{
+    width:100%;
+    max-width:640px;
+    background:var(--panel);
+    border:1px solid var(--cyan-dim);
+    border-radius:14px;
+    padding:24px 24px 20px;
+    box-shadow:0 0 40px rgba(51,214,255,0.08), inset 0 0 30px rgba(51,214,255,0.03);
+  }
+  .header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;flex-wrap:wrap;gap:6px;}
+  .header h1{font-size:15px;letter-spacing:1px;margin:0;color:var(--cyan);text-shadow:0 0 8px rgba(51,214,255,0.4);}
+  .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--red);margin-right:6px;box-shadow:0 0 6px currentColor;}
+  .status-dot.live{background:var(--green);}
+  .status-line{font-size:11px;color:var(--muted);margin-bottom:14px;}
+  .selector-row{display:flex;align-items:center;gap:10px;margin-bottom:18px;}
+  .selector-row label{font-size:11px;letter-spacing:1px;color:var(--muted);white-space:nowrap;}
+  .selector-row select{
+    flex:1;
+    background:#0d1830;
+    color:var(--cyan);
+    border:1px solid var(--cyan-dim);
+    border-radius:6px;
+    padding:8px 10px;
+    font-family:'Courier New', monospace;
+    font-size:13px;
+  }
+  .section-label{font-size:12px;letter-spacing:2px;color:var(--cyan-dim);margin:18px 0 2px;}
+  .price-row{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px;}
+  .price-row span.val{color:var(--text);font-size:13px;}
+  svg{display:block;margin:4px auto 0;}
+  .needle{transition:transform 0.6s cubic-bezier(.4,1.4,.4,1);}
+  .valLabel{transition:fill 0.4s;}
+  .sniper-banner{
+    margin-top:20px;
+    border-radius:10px;
+    padding:16px;
+    text-align:center;
+    letter-spacing:2px;
+    font-size:16px;
+    font-weight:bold;
+    border:1px solid var(--muted);
+    color:var(--muted);
+    background:rgba(255,255,255,0.02);
+    transition:all 0.4s;
+  }
+  .sniper-banner.buy{border-color:var(--green);color:var(--green);box-shadow:0 0 20px rgba(61,220,132,0.25);background:rgba(61,220,132,0.06);}
+  .sniper-banner.sell{border-color:var(--red);color:var(--red);box-shadow:0 0 20px rgba(255,77,77,0.25);background:rgba(255,77,77,0.06);}
+  .sniper-sub{font-size:10px;letter-spacing:1px;color:var(--muted);margin-top:6px;font-weight:normal;}
+  .footer-note{font-size:10px;color:var(--muted);text-align:center;margin-top:14px;line-height:1.6;}
 </style>
 </head>
 <body>
-<header>
-  <h1>Trend-Fan <span>Improved</span> Signal Scanner</h1>
-  <div class="status"><span class="dot" id="dot"></span><span id="statusText">connecting…</span></div>
-</header>
+<div class="frame">
+  <div class="header">
+    <h1 id="mainTitle">LOADING INSTRUMENT LIST&hellip;</h1>
+    <div><span class="status-dot" id="statusDot"></span><span id="statusText">connecting</span></div>
+  </div>
+  <div class="status-line" id="subLine">Fetching available volatility indices from Deriv&hellip;</div>
 
-<div class="controls">
-  <label>Timeframe
-    <select id="granularity">
-      <option value="300" selected>M5</option>
-      <option value="900">M15</option>
-      <option value="1800">M30</option>
-      <option value="3600">H1</option>
-      <option value="14400">H4</option>
-    </select>
-  </label>
-  <label>Projection ×<input id="projMult" type="number" value="2.0" step="0.1" min="1.2" max="4" style="width:56px"></label>
-  <label>CCI threshold<input id="cciThresh" type="number" value="55" step="5" min="20" max="120" style="width:56px"></label>
-  <label>SL buffer<input id="slBuf" type="number" value="1.1" step="0.1" min="0.5" max="3" style="width:56px"></label>
-  <label><input type="checkbox" id="signalsOnly" checked> Signals only</label>
-  <button id="btnRefresh">Force Refresh</button>
+  <div class="selector-row">
+    <label for="symbolSelect">INSTRUMENT</label>
+    <select id="symbolSelect" disabled><option>Loading…</option></select>
+  </div>
+
+  <div class="section-label">H1 — TREND BIAS</div>
+  <div class="price-row"><span>Price</span><span class="val" id="h1Price">&mdash;</span></div>
+  <div class="price-row"><span>CCI(14) H1</span><span class="val" id="h1Cci">&mdash;</span></div>
+  <svg width="100%" viewBox="0 0 680 300" role="img" aria-label="H1 bias gauge">
+    <path d="M120,260 A220,220 0 0,1 162,131" fill="none" stroke="#7a1f1f" stroke-width="40"/>
+    <path d="M162,131 A220,220 0 0,1 272,51"  fill="none" stroke="#7a4a15" stroke-width="40"/>
+    <path d="M272,51  A220,220 0 0,1 408,51"  fill="none" stroke="#33465a" stroke-width="40"/>
+    <path d="M408,51  A220,220 0 0,1 518,131" fill="none" stroke="#2f6b3a" stroke-width="40"/>
+    <path d="M518,131 A220,220 0 0,1 560,260" fill="none" stroke="#1d4d26" stroke-width="40"/>
+    <text x="90" y="285" text-anchor="middle" fill="var(--muted)" font-size="11">SELL</text>
+    <text x="590" y="285" text-anchor="middle" fill="var(--muted)" font-size="11">BUY</text>
+    <line id="h1Needle" class="needle" x1="340" y1="260" x2="130" y2="260" stroke="var(--cyan)" stroke-width="3" stroke-linecap="round" transform="rotate(90,340,260)" style="filter:drop-shadow(0 0 4px rgba(51,214,255,0.8));"/>
+    <circle cx="340" cy="260" r="9" fill="var(--cyan)" style="filter:drop-shadow(0 0 4px rgba(51,214,255,0.8));"/>
+    <text id="h1ValLabel" class="valLabel" x="340" y="205" text-anchor="middle" fill="var(--cyan)" style="font-size:28px;font-family:'Courier New',monospace;">&mdash;</text>
+    <text id="h1StatusLabel" x="340" y="228" text-anchor="middle" fill="var(--muted)" style="font-size:12px;letter-spacing:2px;font-family:'Courier New',monospace;">WAITING</text>
+  </svg>
+
+  <div class="section-label">M1 — ENTRY TIMING</div>
+  <div class="price-row"><span>Price</span><span class="val" id="m1Price">&mdash;</span></div>
+  <div class="price-row"><span>CCI(14) M1</span><span class="val" id="m1Cci">&mdash;</span></div>
+  <svg width="100%" viewBox="0 0 680 300" role="img" aria-label="M1 entry gauge">
+    <path d="M120,260 A220,220 0 0,1 162,131" fill="none" stroke="#7a1f1f" stroke-width="40"/>
+    <path d="M162,131 A220,220 0 0,1 272,51"  fill="none" stroke="#7a4a15" stroke-width="40"/>
+    <path d="M272,51  A220,220 0 0,1 408,51"  fill="none" stroke="#33465a" stroke-width="40"/>
+    <path d="M408,51  A220,220 0 0,1 518,131" fill="none" stroke="#2f6b3a" stroke-width="40"/>
+    <path d="M518,131 A220,220 0 0,1 560,260" fill="none" stroke="#1d4d26" stroke-width="40"/>
+    <text x="90" y="285" text-anchor="middle" fill="var(--muted)" font-size="11">SELL</text>
+    <text x="590" y="285" text-anchor="middle" fill="var(--muted)" font-size="11">BUY</text>
+    <line id="m1Needle" class="needle" x1="340" y1="260" x2="130" y2="260" stroke="var(--cyan)" stroke-width="3" stroke-linecap="round" transform="rotate(90,340,260)" style="filter:drop-shadow(0 0 4px rgba(51,214,255,0.8));"/>
+    <circle cx="340" cy="260" r="9" fill="var(--cyan)" style="filter:drop-shadow(0 0 4px rgba(51,214,255,0.8));"/>
+    <text id="m1ValLabel" class="valLabel" x="340" y="205" text-anchor="middle" fill="var(--cyan)" style="font-size:28px;font-family:'Courier New',monospace;">&mdash;</text>
+    <text id="m1StatusLabel" x="340" y="228" text-anchor="middle" fill="var(--muted)" style="font-size:12px;letter-spacing:2px;font-family:'Courier New',monospace;">WAITING</text>
+  </svg>
+
+  <div class="sniper-banner" id="sniperBanner">
+    NO ALIGNMENT &mdash; WAIT
+    <div class="sniper-sub">H1 trend and M1 timing are not agreeing</div>
+  </div>
+
+  <div class="footer-note">
+    Bias/entry = CCI(14), mapped to a 0&ndash;100 scale. &ge;60 buy zone &middot; &le;40 sell zone &middot; else neutral.<br>
+    Sniper entry fires only when H1 (trend) and M1 (timing) land in the same zone.<br>
+    Instrument list is pulled live from Deriv &mdash; every Volatility Index they currently offer will show up here.
+  </div>
 </div>
 
-<div class="grid" id="grid"></div>
-<footer>
-  <strong>Accuracy improvements:</strong> stronger pivots • fresh-break only • adaptive SL • R:R filter • quality score<br>
-  Educational only — not financial advice. Synthetic indices remain high-risk.
-</footer>
-
 <script>
-const PUBLIC_WS = 'wss://api.derivws.com/trading/v1/options/ws/public';
+const APP_ID = 1089;
+const GRAN_H1 = 3600;
+const GRAN_M1 = 60;
+const CCI_PERIOD = 14;
+const H1_REFRESH_MS = 5 * 60 * 1000;
 
-const SYMBOLS = [
-  {code:'R_10', name:'Volatility 10'},
-  {code:'R_25', name:'Volatility 25'},
-  {code:'R_50', name:'Volatility 50'},
-  {code:'R_75', name:'Volatility 75'},
-  {code:'R_100', name:'Volatility 100'},
-  {code:'1HZ10V', name:'Vol 10 (1s)'},
-  {code:'1HZ25V', name:'Vol 25 (1s)'},
-  {code:'1HZ50V', name:'Vol 50 (1s)'},
-  {code:'1HZ75V', name:'Vol 75 (1s)'},
-  {code:'1HZ100V', name:'Vol 100 (1s)'},
-  {code:'BOOM1000', name:'Boom 1000'},
-  {code:'BOOM500', name:'Boom 500'},
-  {code:'CRASH1000', name:'Crash 1000'},
-  {code:'CRASH500', name:'Crash 500'}
-];
+let ws;
+let SYMBOL = null;
+let DISPLAY_NAME = '';
+let h1Candles = [];
+let m1Candles = [];
+let subscribedTicks = false;
+let h1Zone = 'NEUTRAL';
+let m1Zone = 'NEUTRAL';
+let dataReceived = false;
+let symbolListLoaded = false;
 
-const state = {};
-SYMBOLS.forEach(s => state[s.code] = {candles:[], ema:[], cci:[], atr:[], signal:null, status:'idle', strength:0});
-
-let ws = null, reqId = 1, pending = {}, pingTimer = null;
-
-const grid = document.getElementById('grid');
-const dot = document.getElementById('dot');
+const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
-const granSel = document.getElementById('granularity');
-const projMultEl = document.getElementById('projMult');
-const cciThreshEl = document.getElementById('cciThresh');
-const slBufEl = document.getElementById('slBuf');
-const signalsOnlyEl = document.getElementById('signalsOnly');
+const symbolSelect = document.getElementById('symbolSelect');
+const mainTitle = document.getElementById('mainTitle');
+const subLine = document.getElementById('subLine');
 
-SYMBOLS.forEach(s => {
-  const card = document.createElement('div');
-  card.className = 'card';
-  card.id = 'card-' + s.code;
-  card.innerHTML = `
-    <div class="card-top">
-      <div class="sym">${s.code}<small>${s.name}</small></div>
-      <div class="badge wait" id="badge-${s.code}">WAIT</div>
-    </div>
-    <canvas id="canvas-${s.code}" width="640" height="320"></canvas>
-    <div class="rows">
-      <div class="k">Price</div><div class="v" id="price-${s.code}">—</div>
-      <div class="k">Entry</div><div class="v entry" id="entry-${s.code}">—</div>
-      <div class="k">SL</div><div class="v sl" id="sl-${s.code}">—</div>
-      <div class="k">TP</div><div class="v tp" id="tp-${s.code}">—</div>
-    </div>
-    <div class="meta">
-      <span>Strength <b id="str-${s.code}">0</b></span>
-      <span>R:R <b id="rr-${s.code}">—</b></span>
-    </div>
-    <div class="cci">CCI(14) <b id="cci-${s.code}">—</b></div>
-    <div class="card-status" id="status-${s.code}">idle</div>`;
-  grid.appendChild(card);
-});
-
-function setCardStatus(sym, txt){
-  const el = document.getElementById('status-'+sym);
-  if(el) el.textContent = txt;
-  if(state[sym]) state[sym].status = txt;
+function setConnState(live, label){
+  statusDot.classList.toggle('live', live);
+  statusText.textContent = label;
 }
 
 function connect(){
-  if(ws) try{ws.close();}catch(e){}
-  ws = new WebSocket(PUBLIC_WS);
+  ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`);
 
   ws.onopen = () => {
-    dot.classList.add('on');
-    statusText.textContent = 'connected – loading…';
-    let i = 0;
-    function next(){
-      if(i >= SYMBOLS.length) return;
-      const sym = SYMBOLS[i++].code;
-      setCardStatus(sym, 'loading…');
-      const badge = document.getElementById('badge-'+sym);
-      if(badge){badge.textContent='…'; badge.className='badge loading';}
-      requestCandles(sym);
-      setTimeout(next, 320);
+    setConnState(false, 'fetching instrument list');
+    if (!symbolListLoaded) {
+      ws.send(JSON.stringify({ active_symbols: "brief", product_type: "basic" }));
+    } else if (SYMBOL) {
+      loadSymbol(SYMBOL);
     }
-    next();
-    clearInterval(pingTimer);
-    pingTimer = setInterval(()=>{if(ws&&ws.readyState===1) ws.send(JSON.stringify({ping:1}));},25000);
+  };
+
+  ws.onmessage = (msg) => {
+    const data = JSON.parse(msg.data);
+
+    if (data.error) {
+      console.warn('API error:', data.error.message, data.echo_req);
+      if (!dataReceived) setConnState(false, 'error: ' + data.error.message);
+      return;
+    }
+
+    if (data.msg_type === "active_symbols") {
+      populateSymbolList(data.active_symbols);
+      return;
+    }
+
+    if (data.msg_type === "candles") {
+      const gran = data.echo_req.granularity;
+      const mapped = data.candles.map(c => ({
+        open: parseFloat(c.open),
+        high: parseFloat(c.high),
+        low: parseFloat(c.low),
+        close: parseFloat(c.close),
+        epoch: c.epoch
+      }));
+      if (gran === GRAN_H1) {
+        h1Candles = mapped;
+        recomputeH1();
+      } else if (gran === GRAN_M1) {
+        m1Candles = mapped;
+        recomputeM1();
+        if (!subscribedTicks) {
+          ws.send(JSON.stringify({ ticks: SYMBOL, subscribe: 1 }));
+          subscribedTicks = true;
+        }
+      }
+      dataReceived = true;
+      setConnState(true, 'live');
+    }
+
+    if (data.msg_type === "tick" && data.tick.symbol === SYMBOL) {
+      const price = parseFloat(data.tick.quote);
+      const epoch = data.tick.epoch;
+      const candleEpoch = Math.floor(epoch / GRAN_M1) * GRAN_M1;
+      const last = m1Candles[m1Candles.length - 1];
+      if (last && last.epoch === candleEpoch) {
+        last.high = Math.max(last.high, price);
+        last.low = Math.min(last.low, price);
+        last.close = price;
+      } else {
+        m1Candles.push({ open: price, high: price, low: price, close: price, epoch: candleEpoch });
+        if (m1Candles.length > 300) m1Candles.shift();
+      }
+      dataReceived = true;
+      setConnState(true, 'live');
+      recomputeM1();
+    }
   };
 
   ws.onclose = () => {
-    dot.classList.remove('on');
-    statusText.textContent = 'disconnected – retrying…';
-    clearInterval(pingTimer);
-    setTimeout(connect, 4000);
+    setConnState(false, 'reconnecting');
+    subscribedTicks = false;
+    dataReceived = false;
+    setTimeout(connect, 3000);
   };
 
-  ws.onerror = () => {statusText.textContent = 'connection error';};
-
-  ws.onmessage = (msg) => {
-    try{
-      const data = JSON.parse(msg.data);
-      if(data.error){
-        const sym = pending[data.req_id];
-        if(sym){
-          setCardStatus(sym, 'ERR: '+(data.error.message||data.error.code));
-          const badge = document.getElementById('badge-'+sym);
-          if(badge){badge.textContent='ERR'; badge.className='badge error';}
-        }
-        return;
-      }
-
-      if(data.msg_type === 'candles' || (data.msg_type === 'history' && data.candles)){
-        const sym = pending[data.req_id];
-        if(!sym) return;
-        const raw = data.candles || data.history?.candles || [];
-        state[sym].candles = raw.map(c => ({
-          epoch: c.epoch || c.open_time,
-          open: +c.open, high: +c.high, low: +c.low, close: +c.close
-        }));
-        setCardStatus(sym, 'live ('+state[sym].candles.length+')');
-        recompute(sym);
-      }
-      else if(data.msg_type === 'ohlc' && data.ohlc){
-        const sym = data.ohlc.symbol;
-        if(!state[sym]) return;
-        const c = {
-          epoch: data.ohlc.open_time,
-          open: +data.ohlc.open, high: +data.ohlc.high,
-          low: +data.ohlc.low, close: +data.ohlc.close
-        };
-        const arr = state[sym].candles;
-        const last = arr[arr.length-1];
-        if(last && last.epoch === c.epoch) arr[arr.length-1] = c;
-        else {arr.push(c); if(arr.length > 320) arr.shift();}
-        setCardStatus(sym, 'live ('+arr.length+')');
-        recompute(sym);
-      }
-    }catch(e){console.error(e);}
-  };
+  ws.onerror = () => { ws.close(); };
 }
 
-function requestCandles(sym){
-  if(!ws || ws.readyState !== 1) return;
-  const id = reqId++;
-  pending[id] = sym;
+function populateSymbolList(symbols){
+  const vols = symbols
+    .filter(s => /^Volatility/i.test(s.display_name))
+    .map(s => ({ symbol: s.symbol, name: s.display_name, is1s: /\(1s\)/i.test(s.display_name), num: parseInt(s.display_name.replace(/\D+/g, ''), 10) || 0 }))
+    .sort((a, b) => (a.is1s - b.is1s) || (a.num - b.num));
+
+  symbolSelect.innerHTML = '';
+  vols.forEach(v => {
+    const opt = document.createElement('option');
+    opt.value = v.symbol;
+    opt.textContent = v.name;
+    symbolSelect.appendChild(opt);
+  });
+  symbolSelect.disabled = false;
+  symbolListLoaded = true;
+
+  const preferred = vols.find(v => v.symbol === '1HZ90V') || vols[0];
+  if (preferred) {
+    symbolSelect.value = preferred.symbol;
+    SYMBOL = preferred.symbol;
+    DISPLAY_NAME = preferred.name;
+    loadSymbol(SYMBOL);
+  }
+}
+
+symbolSelect.addEventListener('change', () => {
+  SYMBOL = symbolSelect.value;
+  DISPLAY_NAME = symbolSelect.options[symbolSelect.selectedIndex].textContent;
+  loadSymbol(SYMBOL);
+});
+
+function loadSymbol(sym){
+  mainTitle.textContent = `${DISPLAY_NAME} — H1 BIAS / M1 SNIPER`;
+  subLine.textContent = `${DISPLAY_NAME} · CCI(14) on H1 for trend, CCI(14) on M1 for entry timing`;
+
+  if (subscribedTicks) ws.send(JSON.stringify({ forget_all: "ticks" }));
+  subscribedTicks = false;
+  dataReceived = false;
+  h1Candles = [];
+  m1Candles = [];
+  h1Zone = 'NEUTRAL';
+  m1Zone = 'NEUTRAL';
+  updateSniper();
+  document.getElementById('h1Price').textContent = '—';
+  document.getElementById('h1Cci').textContent = '—';
+  document.getElementById('m1Price').textContent = '—';
+  document.getElementById('m1Cci').textContent = '—';
+  setConnState(false, 'loading ' + sym);
+
+  fetchCandles(GRAN_H1, 200);
+  fetchCandles(GRAN_M1, 200);
+}
+
+function fetchCandles(granularity, count){
   ws.send(JSON.stringify({
-    ticks_history: sym,
+    ticks_history: SYMBOL,
     adjust_start_time: 1,
-    count: 280,
-    end: 'latest',
-    style: 'candles',
-    granularity: +granSel.value,
-    subscribe: 1,
-    req_id: id
+    count: count,
+    end: "latest",
+    granularity: granularity,
+    style: "candles"
   }));
 }
 
-document.getElementById('btnRefresh').onclick = () => {
-  SYMBOLS.forEach(s => {
-    state[s.code] = {candles:[],ema:[],cci:[],atr:[],signal:null,status:'idle',strength:0};
-  });
-  if(ws && ws.readyState === 1) ws.close();
-  else connect();
-};
-granSel.onchange = () => document.getElementById('btnRefresh').click();
-
-// ===== Improved indicators & logic =====
-function ema(values,period){
-  const k=2/(period+1); const out=[];
-  values.forEach((v,i)=>out.push(i===0?v:v*k+out[i-1]*(1-k)));
-  return out;
+function computeCCI(candles, period){
+  if (candles.length < period) return null;
+  const slice = candles.slice(-period);
+  const tps = slice.map(c => (c.high + c.low + c.close) / 3);
+  const sma = tps.reduce((a,b) => a+b, 0) / period;
+  const meanDev = tps.reduce((a,b) => a + Math.abs(b - sma), 0) / period;
+  if (meanDev === 0) return 0;
+  return (tps[tps.length - 1] - sma) / (0.015 * meanDev);
 }
-function cci(candles,period){
-  const tp=candles.map(c=>(c.high+c.low+c.close)/3);
-  const out=new Array(candles.length).fill(null);
-  for(let i=period-1;i<candles.length;i++){
-    const slice=tp.slice(i-period+1,i+1);
-    const sma=slice.reduce((a,b)=>a+b,0)/period;
-    const md=slice.reduce((a,b)=>a+Math.abs(b-sma),0)/period;
-    out[i]=md===0?0:(tp[i]-sma)/(0.015*md);
+
+function cciToValue(cci){
+  const clamped = Math.max(-200, Math.min(200, cci));
+  return ((clamped + 200) / 400) * 100;
+}
+
+function zoneOf(value){
+  if (value >= 60) return 'BUY';
+  if (value <= 40) return 'SELL';
+  return 'NEUTRAL';
+}
+
+function labelAndColor(value){
+  if (value >= 80) return ['STRONG BUY', '#3ddc84'];
+  if (value >= 60) return ['BUY', '#7be0a0'];
+  if (value >= 40) return ['NEUTRAL', '#5f7d92'];
+  if (value >= 20) return ['SELL', '#ffb020'];
+  return ['STRONG SELL', '#ff4d4d'];
+}
+
+function updateGaugeVisual(prefix, value){
+  const deg = (value / 100) * 180;
+  document.getElementById(prefix + 'Needle').setAttribute('transform', `rotate(${deg},340,260)`);
+  document.getElementById(prefix + 'ValLabel').textContent = Math.round(value);
+  const [label, color] = labelAndColor(value);
+  const statusEl = document.getElementById(prefix + 'StatusLabel');
+  statusEl.textContent = label;
+  statusEl.setAttribute('fill', color);
+  document.getElementById(prefix + 'ValLabel').setAttribute('fill', color);
+}
+
+function recomputeH1(){
+  const price = h1Candles[h1Candles.length - 1]?.close;
+  if (price !== undefined) document.getElementById('h1Price').textContent = price.toFixed(3);
+  const cci = computeCCI(h1Candles, CCI_PERIOD);
+  if (cci === null) return;
+  document.getElementById('h1Cci').textContent = cci.toFixed(1);
+  const value = cciToValue(cci);
+  updateGaugeVisual('h1', value);
+  h1Zone = zoneOf(value);
+  updateSniper();
+}
+
+function recomputeM1(){
+  const price = m1Candles[m1Candles.length - 1]?.close;
+  if (price !== undefined) document.getElementById('m1Price').textContent = price.toFixed(3);
+  const cci = computeCCI(m1Candles, CCI_PERIOD);
+  if (cci === null) return;
+  document.getElementById('m1Cci').textContent = cci.toFixed(1);
+  const value = cciToValue(cci);
+  updateGaugeVisual('m1', value);
+  m1Zone = zoneOf(value);
+  updateSniper();
+}
+
+function updateSniper(){
+  const banner = document.getElementById('sniperBanner');
+  const sub = banner.querySelector('.sniper-sub');
+  banner.classList.remove('buy', 'sell');
+  if (h1Zone === 'BUY' && m1Zone === 'BUY') {
+    banner.classList.add('buy');
+    banner.firstChild.textContent = 'SNIPER ENTRY: BUY ';
+    sub.textContent = 'H1 trend and M1 timing agree — buy zone';
+  } else if (h1Zone === 'SELL' && m1Zone === 'SELL') {
+    banner.classList.add('sell');
+    banner.firstChild.textContent = 'SNIPER ENTRY: SELL ';
+    sub.textContent = 'H1 trend and M1 timing agree — sell zone';
+  } else {
+    banner.firstChild.textContent = 'NO ALIGNMENT — WAIT ';
+    sub.textContent = 'H1 trend and M1 timing are not agreeing';
   }
-  return out;
-}
-function atr(candles,period){
-  const trs=candles.map((c,i)=>{
-    if(i===0) return c.high-c.low;
-    const pc=candles[i-1].close;
-    return Math.max(c.high-c.low, Math.abs(c.high-pc), Math.abs(c.low-pc));
-  });
-  const out=new Array(candles.length).fill(null);
-  for(let i=period-1;i<candles.length;i++)
-    out[i]=trs.slice(i-period+1,i+1).reduce((a,b)=>a+b,0)/period;
-  return out;
 }
 
-function findQualityPivots(emaArr, lookback, minBarsApart, minSize){
-  const highs=[], lows=[];
-  for(let i=lookback; i<emaArr.length-lookback; i++){
-    const w = emaArr.slice(i-lookback, i+lookback+1);
-    if(emaArr[i] === Math.max(...w)) highs.push({index:i, price:emaArr[i]});
-    if(emaArr[i] === Math.min(...w)) lows.push({index:i, price:emaArr[i]});
-  }
-  // keep only significant pivots
-  function clean(arr){
-    if(arr.length < 2) return arr;
-    const out = [arr[0]];
-    for(let i=1; i<arr.length; i++){
-      const prev = out[out.length-1];
-      if(arr[i].index - prev.index >= minBarsApart &&
-         Math.abs(arr[i].price - prev.price) >= minSize){
-        out.push(arr[i]);
-      }
-    }
-    return out;
-  }
-  return {highs: clean(highs), lows: clean(lows)};
-}
-
-function recompute(sym){
-  try{
-    const s = state[sym];
-    if(s.candles.length < 70) return;
-
-    const closes = s.candles.map(c => c.close);
-    s.ema = ema(closes, 9);
-    s.cci = cci(s.candles, 14);
-    s.atr = atr(s.candles, 14);
-
-    const lastIdx = s.candles.length - 1;
-    const lastClose = closes[lastIdx];
-    const lastCci = s.cci[lastIdx];
-    const lastAtr = s.atr[lastIdx] || 0;
-    if(lastAtr === 0) return;
-
-    const projMult = +projMultEl.value;
-    const cciThresh = +cciThreshEl.value;
-    const slBuf = +slBufEl.value;
-
-    // Adaptive settings
-    const isM5 = +granSel.value === 300;
-    const minBars = isM5 ? 6 : 4;
-    const minPivotSize = lastAtr * (isM5 ? 0.45 : 0.35);
-
-    const {highs, lows} = findQualityPivots(s.ema, 4, minBars, minPivotSize);
-
-    let signal = null;
-
-    // ===== SELL =====
-    if(highs.length >= 2){
-      const p2 = highs[highs.length-1];
-      const p1 = highs[highs.length-2];
-
-      // Must be lower high
-      if(p2.price < p1.price){
-        // Fresh break: price was above p2 recently and is now below
-        const barsSincePivot = lastIdx - p2.index;
-        const recentlyBroke = barsSincePivot <= 4 && lastClose < p2.price;
-
-        // Check if the break is fresh (previous bar was still above or equal)
-        const prevClose = closes[lastIdx-1];
-        const justBroke = prevClose >= p2.price && lastClose < p2.price;
-
-        if((recentlyBroke || justBroke) && lastCci != null && lastCci < -cciThresh){
-          const slope = (p2.price - p1.price) / (p2.index - p1.index);
-          const dist = p2.index - p1.index;
-          const projIndex = p2.index + projMult * dist;
-          const tp = p2.price + slope * (projIndex - p2.index);
-
-          // Better SL: last swing high + buffer
-          const sl = Math.max(p2.price, p1.price) + slBuf * lastAtr;
-
-          const risk = sl - lastClose;
-          const reward = lastClose - tp;
-          const rr = risk > 0 ? reward / risk : 0;
-
-          if(tp < lastClose && rr >= 1.2){
-            const strength = Math.min(100, Math.round(
-              (Math.abs(lastCci)/cciThresh)*35 +
-              Math.min(rr,3)*18 +
-              (barsSincePivot <= 2 ? 20 : 10)
-            ));
-            if(strength >= 48){
-              signal = {dir:'SELL', entry:lastClose, sl, tp, p1, p2, projIndex, rr, strength};
-            }
-          }
-        }
-      }
-    }
-
-    // ===== BUY =====
-    if(!signal && lows.length >= 2){
-      const p2 = lows[lows.length-1];
-      const p1 = lows[lows.length-2];
-
-      if(p2.price > p1.price){
-        const barsSincePivot = lastIdx - p2.index;
-        const recentlyBroke = barsSincePivot <= 4 && lastClose > p2.price;
-        const prevClose = closes[lastIdx-1];
-        const justBroke = prevClose <= p2.price && lastClose > p2.price;
-
-        if((recentlyBroke || justBroke) && lastCci != null && lastCci > cciThresh){
-          const slope = (p2.price - p1.price) / (p2.index - p1.index);
-          const dist = p2.index - p1.index;
-          const projIndex = p2.index + projMult * dist;
-          const tp = p2.price + slope * (projIndex - p2.index);
-
-          const sl = Math.min(p2.price, p1.price) - slBuf * lastAtr;
-
-          const risk = lastClose - sl;
-          const reward = tp - lastClose;
-          const rr = risk > 0 ? reward / risk : 0;
-
-          if(tp > lastClose && rr >= 1.2){
-            const strength = Math.min(100, Math.round(
-              (Math.abs(lastCci)/cciThresh)*35 +
-              Math.min(rr,3)*18 +
-              (barsSincePivot <= 2 ? 20 : 10)
-            ));
-            if(strength >= 48){
-              signal = {dir:'BUY', entry:lastClose, sl, tp, p1, p2, projIndex, rr, strength};
-            }
-          }
-        }
-      }
-    }
-
-    s.signal = signal;
-    s.strength = signal ? signal.strength : 0;
-    render(sym);
-  }catch(e){console.error(e);}
-}
-
-function fmt(n){return (n==null||!isFinite(n))?'—':n.toFixed(n>100?2:4);}
-
-function render(sym){
-  try{
-    const s = state[sym];
-    if(!s || !s.candles.length) return;
-    const last = s.candles[s.candles.length-1];
-    const badge = document.getElementById('badge-'+sym);
-    const card = document.getElementById('card-'+sym);
-
-    document.getElementById('price-'+sym).textContent = fmt(last.close);
-    document.getElementById('cci-'+sym).textContent = s.cci[s.cci.length-1]!=null ? s.cci[s.cci.length-1].toFixed(1) : '—';
-
-    card.classList.remove('signal-sell','signal-buy');
-
-    if(s.signal){
-      badge.textContent = s.signal.dir;
-      badge.className = 'badge ' + (s.signal.dir==='SELL'?'sell':'buy');
-      card.classList.add(s.signal.dir==='SELL'?'signal-sell':'signal-buy');
-      document.getElementById('entry-'+sym).textContent = fmt(s.signal.entry);
-      document.getElementById('sl-'+sym).textContent = fmt(s.signal.sl);
-      document.getElementById('tp-'+sym).textContent = fmt(s.signal.tp);
-      document.getElementById('str-'+sym).textContent = s.signal.strength;
-      document.getElementById('rr-'+sym).textContent = s.signal.rr.toFixed(2);
-    }else{
-      badge.textContent = 'WAIT';
-      badge.className = 'badge wait';
-      document.getElementById('entry-'+sym).textContent = '—';
-      document.getElementById('sl-'+sym).textContent = '—';
-      document.getElementById('tp-'+sym).textContent = '—';
-      document.getElementById('str-'+sym).textContent = '0';
-      document.getElementById('rr-'+sym).textContent = '—';
-    }
-
-    card.style.display = (signalsOnlyEl.checked && !s.signal) ? 'none' : '';
-    drawChart(sym);
-  }catch(e){console.error(e);}
-}
-signalsOnlyEl.onchange = () => SYMBOLS.forEach(s => render(s.code));
-
-function drawChart(sym){
-  try{
-    const s = state[sym];
-    const canvas = document.getElementById('canvas-'+sym);
-    if(!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const W = canvas.width, H = canvas.height;
-    ctx.clearRect(0,0,W,H);
-    const candles = s.candles, emaArr = s.ema;
-    if(!emaArr || emaArr.length < 2) return;
-
-    const visible = 70;
-    const start = Math.max(0, emaArr.length - visible);
-    const sliceEma = emaArr.slice(start);
-    const sliceCandles = candles.slice(start);
-    const projIndex = (s.signal && isFinite(s.signal.projIndex)) ? s.signal.projIndex : null;
-    const maxIndex = projIndex !== null ? Math.max(emaArr.length-1, projIndex) : emaArr.length-1;
-    const spanCount = Math.max(1, maxIndex - start);
-
-    let lo = Math.min(...sliceCandles.map(c=>c.low), ...sliceEma);
-    let hi = Math.max(...sliceCandles.map(c=>c.high), ...sliceEma);
-    if(s.signal && isFinite(s.signal.tp) && isFinite(s.signal.sl)){
-      lo = Math.min(lo, s.signal.tp, s.signal.sl, s.signal.entry);
-      hi = Math.max(hi, s.signal.tp, s.signal.sl, s.signal.entry);
-    }
-    if(!isFinite(lo)||!isFinite(hi)) return;
-    let pad = (hi-lo)*0.13 || Math.abs(hi)*0.01 || 1;
-    lo -= pad; hi += pad;
-    const range = (hi-lo)||1;
-    const x = i => ((i-start)/spanCount)*(W-12)+6;
-    const y = v => H-((v-lo)/range)*(H-12)-6;
-    const finite = (...v) => v.every(n => typeof n==='number' && isFinite(n));
-
-    const candleW = Math.max(2,(W/spanCount)*0.55);
-    sliceCandles.forEach((c,i)=>{
-      const idx=start+i, cx=x(idx);
-      const openY=y(c.open), closeY=y(c.close), highY=y(c.high), lowY=y(c.low);
-      const up = c.close >= c.open;
-      ctx.strokeStyle = up?'#22c55e':'#ef4444';
-      ctx.fillStyle = up?'#22c55e':'#ef4444';
-      ctx.beginPath(); ctx.moveTo(cx,highY); ctx.lineTo(cx,lowY); ctx.stroke();
-      ctx.fillRect(cx-candleW/2, Math.min(openY,closeY), candleW, Math.max(1,Math.abs(closeY-openY)));
-    });
-
-    ctx.strokeStyle='#e8e9f0'; ctx.lineWidth=1.6; ctx.beginPath();
-    sliceEma.forEach((v,i)=>{const idx=start+i; if(i===0) ctx.moveTo(x(idx),y(v)); else ctx.lineTo(x(idx),y(v));});
-    ctx.stroke();
-
-    if(s.signal && projIndex!==null && finite(s.signal.tp,s.signal.sl,s.signal.entry,s.signal.p1.price,s.signal.p2.price)){
-      const {p1,p2,tp,sl,entry,dir} = s.signal;
-      const color = dir==='SELL'?'#3b82f6':'#22d3ee';
-      [p1,p2].forEach(p=>{
-        const px=x(p.index), py=y(p.price);
-        if(!finite(px,py)) return;
-        ctx.fillStyle=color; ctx.beginPath(); ctx.arc(px,py,4,0,Math.PI*2); ctx.fill();
-        ctx.strokeStyle='#fff'; ctx.lineWidth=1; ctx.stroke();
-      });
-      const tpX=x(projIndex), tpY=y(tp);
-      if(finite(tpX,tpY)){
-        ctx.strokeStyle=color; ctx.lineWidth=1.4;
-        ctx.beginPath(); ctx.moveTo(x(p1.index),y(p1.price)); ctx.lineTo(tpX,tpY); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(x(p2.index),y(p2.price)); ctx.lineTo(tpX,tpY); ctx.stroke();
-        ctx.fillStyle='#22d3ee'; ctx.beginPath(); ctx.arc(tpX,tpY,5,0,Math.PI*2); ctx.fill();
-        ctx.strokeStyle='#fff'; ctx.lineWidth=1; ctx.stroke();
-      }
-      function hLine(val,col){
-        const vy=y(val); if(!finite(vy)) return;
-        ctx.strokeStyle=col; ctx.setLineDash([5,3]); ctx.lineWidth=1.2;
-        ctx.beginPath(); ctx.moveTo(0,vy); ctx.lineTo(W,vy); ctx.stroke(); ctx.setLineDash([]);
-      }
-      hLine(entry,'#ef4444'); hLine(sl,'#ef4444'); hLine(tp,'#22d3ee');
-    }
-  }catch(e){console.error(e);}
-}
+setInterval(() => { if (ws && ws.readyState === WebSocket.OPEN && SYMBOL) fetchCandles(GRAN_H1, 200); }, H1_REFRESH_MS);
 
 connect();
 </script>
 </body>
-</html> use that info to get real live data for v100 1s
-
+</html>
