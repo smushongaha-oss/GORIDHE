@@ -152,6 +152,23 @@ let h1Zone = 'NEUTRAL';
 let m1Zone = 'NEUTRAL';
 let dataReceived = false;
 let symbolListLoaded = false;
+let symbolListTimeout = null;
+
+const FALLBACK_SYMBOLS = [
+  { symbol: 'R_10',    display_name: 'Volatility 10 Index' },
+  { symbol: 'R_25',    display_name: 'Volatility 25 Index' },
+  { symbol: 'R_50',    display_name: 'Volatility 50 Index' },
+  { symbol: 'R_75',    display_name: 'Volatility 75 Index' },
+  { symbol: 'R_100',   display_name: 'Volatility 100 Index' },
+  { symbol: '1HZ10V',  display_name: 'Volatility 10 (1s) Index' },
+  { symbol: '1HZ15V',  display_name: 'Volatility 15 (1s) Index' },
+  { symbol: '1HZ25V',  display_name: 'Volatility 25 (1s) Index' },
+  { symbol: '1HZ30V',  display_name: 'Volatility 30 (1s) Index' },
+  { symbol: '1HZ50V',  display_name: 'Volatility 50 (1s) Index' },
+  { symbol: '1HZ75V',  display_name: 'Volatility 75 (1s) Index' },
+  { symbol: '1HZ90V',  display_name: 'Volatility 90 (1s) Index' },
+  { symbol: '1HZ100V', display_name: 'Volatility 100 (1s) Index' }
+];
 
 const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
@@ -171,6 +188,13 @@ function connect(){
     setConnState(false, 'fetching instrument list');
     if (!symbolListLoaded) {
       ws.send(JSON.stringify({ active_symbols: "brief", product_type: "basic" }));
+      clearTimeout(symbolListTimeout);
+      symbolListTimeout = setTimeout(() => {
+        if (!symbolListLoaded) {
+          console.warn('active_symbols timed out — using fallback instrument list');
+          populateSymbolList(FALLBACK_SYMBOLS);
+        }
+      }, 6000);
     } else if (SYMBOL) {
       loadSymbol(SYMBOL);
     }
@@ -186,7 +210,7 @@ function connect(){
     }
 
     if (data.msg_type === "active_symbols") {
-      populateSymbolList(data.active_symbols);
+      if (!symbolListLoaded) populateSymbolList(data.active_symbols);
       return;
     }
 
@@ -244,6 +268,7 @@ function connect(){
 }
 
 function populateSymbolList(symbols){
+  clearTimeout(symbolListTimeout);
   const vols = symbols
     .filter(s => /^Volatility/i.test(s.display_name))
     .map(s => ({ symbol: s.symbol, name: s.display_name, is1s: /\(1s\)/i.test(s.display_name), num: parseInt(s.display_name.replace(/\D+/g, ''), 10) || 0 }))
